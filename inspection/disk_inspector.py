@@ -3,9 +3,11 @@ Disk inspection coordinator.
 """
 
 from typing import List, Optional
-from ..core import PhysicalDisk, Partition, FilesystemType, DiskType
-from ..backend import MacDiskUtilBackend  
-from ..detection import ContentDetector
+from core.models import PhysicalDisk, Partition
+from core.enums import FilesystemType, DiskType
+from backend.macos_diskutil import DiskUtilBackend
+from detection.content_detector import ContentDetector
+
 
 class DiskInspector:
     """
@@ -189,11 +191,3 @@ class DiskInspector:
                 disk.disk_type = DiskType.DATA_DISK
                 disk.classification_confidence = "Medium"
                 disk.classification_notes.append("No installer markers detected")
-
-
-# ============================================================================
-# DRIVE TESTING ENGINE
-# ============================================================================
-
-@dataclass
-class TestResult:

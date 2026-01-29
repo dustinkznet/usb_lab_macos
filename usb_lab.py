@@ -5,9 +5,10 @@ Main entry point for the application.
 """
 
 import sys
-from ui import clear_screen, print_header, print_error, Color
-from database import DatabaseManager
-from inspection import DiskInspector
+from ui.display import clear_screen, print_header, print_error
+from ui.colors import Color
+from database.db_manager import DatabaseManager
+from inspection.disk_inspector import DiskInspector
 from ui.menus import MenuSystem
 
 

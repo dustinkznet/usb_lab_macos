@@ -5,11 +5,11 @@ macOS diskutil backend for USB LAB.
 import subprocess
 import plistlib
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from .base import DiskBackend
-from ..ui import print_error
 
-class DiskUtilBackend:
+
+class DiskUtilBackend(DiskBackend):
     """
     macOS diskutil interface for read-only disk inspection.
     
@@ -52,7 +52,6 @@ class DiskUtilBackend:
         
         try:
             # diskutil list -plist returns XML plist
-            import plistlib
             data = plistlib.loads(stdout.encode())
             
             # Extract physical disks only (diskX, not diskXsY)
@@ -66,7 +65,7 @@ class DiskUtilBackend:
             
             return physical_disks
         except Exception as e:
-            print_error(f"Failed to parse disk list: {e}")
+            print(f"Failed to parse disk list: {e}")
             return []
     
     @classmethod
@@ -85,10 +84,9 @@ class DiskUtilBackend:
             return None
         
         try:
-            import plistlib
             return plistlib.loads(stdout.encode())
         except Exception as e:
-            print_error(f"Failed to parse disk info for {disk_id}: {e}")
+            print(f"Failed to parse disk info for {disk_id}: {e}")
             return None
     
     @classmethod
@@ -120,7 +118,6 @@ class DiskUtilBackend:
             return []
         
         try:
-            import plistlib
             data = plistlib.loads(stdout.encode())
             
             partitions = []
@@ -133,12 +130,5 @@ class DiskUtilBackend:
             
             return partitions
         except Exception as e:
-            print_error(f"Failed to parse partition list for {disk_id}: {e}")
+            print(f"Failed to parse partition list for {disk_id}: {e}")
             return []
-
-
-# ============================================================================
-# CONTENT DETECTION & CLASSIFICATION
-# ============================================================================
-
-class ContentDetector:

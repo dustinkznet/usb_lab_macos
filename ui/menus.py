@@ -3,13 +3,13 @@ Menu system for USB LAB.
 """
 
 from typing import Optional
-from ..core import PhysicalDisk
-from ..database import DatabaseManager
-from ..inspection import DiskInspector  
-from ..testing import DriveTestEngine
-from .colors import Color
-from .display import clear_screen, print_header, print_section, print_success, print_warning, print_error
-from .reporters import DiskReporter
+from core.models import PhysicalDisk
+from database.db_manager import DatabaseManager
+from inspection.disk_inspector import DiskInspector  
+from testing.test_engine import DriveTestEngine
+from ui.colors import Color
+from ui.display import clear_screen, print_header, print_section, print_success, print_warning, print_error
+from ui.reporters import DiskReporter
 
 class MenuSystem:
     """

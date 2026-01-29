@@ -72,3 +72,4 @@ def print_success(message: str):
 
 def clear_screen():
     """Clear terminal screen"""
+    os.system('clear' if os.name != 'nt' else 'cls')

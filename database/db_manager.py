@@ -8,8 +8,9 @@ import json
 from pathlib import Path
 from typing import Dict, Optional
 
-from ..core import PhysicalDisk, DiskType
-from ..core.constants import DB_DIR_NAME, DB_FILE_NAME
+from core.models import PhysicalDisk
+from core.enums import DiskType
+from core.constants import DB_DIR_NAME, DB_FILE_NAME
 
 class DatabaseManager:
     """

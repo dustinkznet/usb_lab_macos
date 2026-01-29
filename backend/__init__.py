@@ -3,6 +3,6 @@ Platform-specific disk backends for USB LAB.
 """
 
 from .base import DiskBackend
-from .macos_diskutil import MacDiskUtilBackend
+from .macos_diskutil import DiskUtilBackend
 
-__all__ = ['DiskBackend', 'MacDiskUtilBackend']
+__all__ = ['DiskBackend', 'DiskUtilBackend']

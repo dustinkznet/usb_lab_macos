@@ -4,8 +4,15 @@ Content detection for identifying installer media and disk types.
 
 import os
 from typing import Tuple, List
-from ..core import DiskType
-from ..core.constants import MACOS_LEGACY_MARKERS, MACOS_MODERN_MARKERS, LINUX_MARKERS, WINDOWS_MARKERS
+from core.enums import DiskType
+from core.constants import (
+    MACOS_LEGACY_MARKERS,
+    MACOS_MODERN_MARKERS,
+    LINUX_MARKERS,
+    WINDOWS_MARKERS
+)
+from backend.macos_diskutil import DiskUtilBackend
+
 
 class ContentDetector:
     """
@@ -14,39 +21,6 @@ class ContentDetector:
     This class implements read-only inspection of mount points to identify
     installer media, boot disks, and other special-purpose content.
     """
-    
-    # macOS installer markers (legacy HFS+ based)
-    MACOS_LEGACY_MARKERS = [
-        '.IABootFiles',
-        '.IAProductInfo',
-        'System/Library/CoreServices/boot.efi',
-        'BaseSystem.dmg',
-        'mach_kernel',
-    ]
-    
-    # macOS installer markers (modern APFS/USB based)
-    MACOS_MODERN_MARKERS = [
-        'Install macOS',  # Folder prefix
-        '.IAPhysicalMedia',
-        'com_apple_MobileAsset_MacSoftwareUpdate',
-    ]
-    
-    # Linux installer markers
-    LINUX_MARKERS = [
-        'casper',  # Ubuntu
-        'isolinux',
-        'syslinux',
-        'EFI/BOOT/grubx64.efi',
-        '.disk/info',
-    ]
-    
-    # Windows installer markers
-    WINDOWS_MARKERS = [
-        'sources/install.wim',
-        'sources/install.esd',
-        'bootmgr',
-        'setup.exe',
-    ]
     
     @classmethod
     def detect_content_type(cls, mount_point: str) -> Tuple[DiskType, List[str]]:
@@ -65,7 +39,7 @@ class ContentDetector:
         detected_markers = []
         
         # Check for macOS legacy installer
-        for marker in cls.MACOS_LEGACY_MARKERS:
+        for marker in MACOS_LEGACY_MARKERS:
             marker_path = os.path.join(mount_point, marker)
             if os.path.exists(marker_path):
                 detected_markers.append(marker)
@@ -74,7 +48,7 @@ class ContentDetector:
             return DiskType.MACOS_INSTALLER_LEGACY, detected_markers
         
         # Check for macOS modern installer
-        for marker in cls.MACOS_MODERN_MARKERS:
+        for marker in MACOS_MODERN_MARKERS:
             marker_path = os.path.join(mount_point, marker)
             # Handle prefix matching for "Install macOS"
             if marker.startswith('Install macOS'):
@@ -91,7 +65,7 @@ class ContentDetector:
             return DiskType.MACOS_INSTALLER_MODERN, detected_markers
         
         # Check for Linux installer
-        for marker in cls.LINUX_MARKERS:
+        for marker in LINUX_MARKERS:
             marker_path = os.path.join(mount_point, marker)
             if os.path.exists(marker_path):
                 detected_markers.append(marker)
@@ -100,7 +74,7 @@ class ContentDetector:
             return DiskType.LINUX_INSTALLER, detected_markers
         
         # Check for Windows installer
-        for marker in cls.WINDOWS_MARKERS:
+        for marker in WINDOWS_MARKERS:
             marker_path = os.path.join(mount_point, marker)
             if os.path.exists(marker_path):
                 detected_markers.append(marker)
@@ -162,10 +136,3 @@ class ContentDetector:
         notes.append("Partition is not mounted - limited inspection available")
         
         return DiskType.UNKNOWN, notes
-
-
-# ============================================================================
-# DISK INSPECTOR - MAIN LOGIC
-# ============================================================================
-
-class DiskInspector:

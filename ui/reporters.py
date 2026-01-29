@@ -2,9 +2,10 @@
 Reporting utilities for displaying disk inspection results.
 """
 
-from ..core import PhysicalDisk, Partition, DiskType
-from .colors import Color
-from .display import print_info
+from core.models import PhysicalDisk, Partition
+from core.enums import DiskType
+from ui.colors import Color
+from ui.display import print_info
 
 
 class DiskReporter:
