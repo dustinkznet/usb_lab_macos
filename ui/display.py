@@ -6,38 +6,35 @@ import os
 from .colors import Color
 
 def print_header():
-    """Display ASCII art header - retro BBS style"""
+    """Display ASCII art header - retro BBS style with large intricate character-based art"""
+    # Color palette: Cyan, Yellow, Magenta for different sections
     header = f"""
-{Color.BRIGHT_CYAN}╔════════════════════════════════════════════════════════════════════════════════╗
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_MAGENTA}     .═════════════════════════════════════════════════════════════════════.     {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_MAGENTA}    /                                                                       \\    {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_YELLOW}   ║    {Color.BRIGHT_RED}██╗   ██╗{Color.BRIGHT_YELLOW}███████╗{Color.BRIGHT_GREEN}██████╗ {Color.BRIGHT_CYAN}    ██╗      {Color.BRIGHT_BLUE}█████╗ {Color.BRIGHT_MAGENTA}██████╗{Color.BRIGHT_YELLOW}     ║   {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_YELLOW}   ║    {Color.BRIGHT_RED}██║   ██║{Color.BRIGHT_YELLOW}██╔════╝{Color.BRIGHT_GREEN}██╔══██╗{Color.BRIGHT_CYAN}    ██║     {Color.BRIGHT_BLUE}██╔══██╗{Color.BRIGHT_MAGENTA}██╔══██╗{Color.BRIGHT_YELLOW}    ║   {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_YELLOW}   ║    {Color.BRIGHT_RED}██║   ██║{Color.BRIGHT_YELLOW}███████╗{Color.BRIGHT_GREEN}██████╔╝{Color.BRIGHT_CYAN}    ██║     {Color.BRIGHT_BLUE}███████║{Color.BRIGHT_MAGENTA}██████╔╝{Color.BRIGHT_YELLOW}    ║   {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_YELLOW}   ║    {Color.BRIGHT_RED}██║   ██║{Color.BRIGHT_YELLOW}╚════██║{Color.BRIGHT_GREEN}██╔══██╗{Color.BRIGHT_CYAN}    ██║     {Color.BRIGHT_BLUE}██╔══██║{Color.BRIGHT_MAGENTA}██╔══██╗{Color.BRIGHT_YELLOW}    ║   {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_YELLOW}   ║    {Color.BRIGHT_RED}╚██████╔╝{Color.BRIGHT_YELLOW}███████║{Color.BRIGHT_GREEN}██████╔╝{Color.BRIGHT_CYAN}    ███████╗{Color.BRIGHT_BLUE}██║  ██║{Color.BRIGHT_MAGENTA}██████╔╝{Color.BRIGHT_YELLOW}    ║   {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_YELLOW}   ║    {Color.BRIGHT_RED} ╚═════╝ {Color.BRIGHT_YELLOW}╚══════╝{Color.BRIGHT_GREEN}╚═════╝ {Color.BRIGHT_CYAN}    ╚══════╝{Color.BRIGHT_BLUE}╚═╝  ╚═╝{Color.BRIGHT_MAGENTA}╚═════╝{Color.BRIGHT_YELLOW}     ║   {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_MAGENTA}    \\                                                                       /    {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_MAGENTA}     '═════════════════════════════════════════════════════════════════════'     {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_WHITE}                                                                                {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_GREEN}╔═══════════════════════════════════════════════════════════════════════════╗  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_GREEN}║ {Color.BRIGHT_YELLOW}▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ {Color.BRIGHT_GREEN}║  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_GREEN}║ {Color.BRIGHT_YELLOW}▓▓{Color.BRIGHT_WHITE}  USB DRIVE ANALYSIS · TESTING · BENCHMARKING SUITE  {Color.BRIGHT_YELLOW}▓▓ {Color.BRIGHT_GREEN}║  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_GREEN}║ {Color.BRIGHT_YELLOW}▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ {Color.BRIGHT_GREEN}║  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_GREEN}╚═══════════════════════════════════════════════════════════════════════════╝  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_WHITE}                                                                                {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_CYAN}╭───────────────────────────────────────────────────────────────────────────╮  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_CYAN}│ {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Read-Only Inspection    {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Sequential R/W Testing              {Color.BRIGHT_CYAN}│  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_CYAN}│ {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Drive Classification    {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Random 4K IOPS Testing              {Color.BRIGHT_CYAN}│  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_CYAN}│ {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Health Verification     {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Sustained Performance Tests         {Color.BRIGHT_CYAN}│  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_CYAN}│ {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Performance Logging     {Color.BRIGHT_GREEN}[●]{Color.BRIGHT_WHITE} Small File Operation Tests          {Color.BRIGHT_CYAN}│  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║  {Color.BRIGHT_CYAN}╰───────────────────────────────────────────────────────────────────────────╯  {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_WHITE}                                                                                {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║    {Color.BRIGHT_MAGENTA}┌─────────────────────────────────────────────────────────────────────┐      {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║    {Color.BRIGHT_MAGENTA}│  {Color.BRIGHT_YELLOW}Version 0.3.0{Color.BRIGHT_WHITE} - macOS Edition  {Color.BRIGHT_CYAN}│{Color.BRIGHT_WHITE}  Offline Only{Color.BRIGHT_CYAN} │{Color.BRIGHT_WHITE}  Read/Write  {Color.BRIGHT_MAGENTA}│      {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║    {Color.BRIGHT_MAGENTA}└─────────────────────────────────────────────────────────────────────┘      {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}║{Color.BRIGHT_WHITE}                                                                                {Color.BRIGHT_CYAN}║
-{Color.BRIGHT_CYAN}╚════════════════════════════════════════════════════════════════════════════════╝{Color.RESET}
+    
+{Color.BRIGHT_GREEN}            @@@  @@@  {Color.BRIGHT_MAGENTA} @@@@@@   {Color.BRIGHT_RED}@@@@@@@       {Color.BRIGHT_CYAN}@@@       {Color.BRIGHT_YELLOW} @@@@@@   {Color.BRIGHT_BLUE}@@@@@@@   
+{Color.BRIGHT_GREEN}            @@@  @@@  {Color.BRIGHT_MAGENTA}@@@@@@@   {Color.BRIGHT_RED}@@@@@@@@      {Color.BRIGHT_CYAN}@@@       {Color.BRIGHT_YELLOW}@@@@@@@@  {Color.BRIGHT_BLUE}@@@@@@@@  
+{Color.BRIGHT_GREEN}            @@!  @@@  {Color.BRIGHT_MAGENTA}!@@       {Color.BRIGHT_RED}@@!  @@@      {Color.BRIGHT_CYAN}@@!       {Color.BRIGHT_YELLOW}@@!  @@@  {Color.BRIGHT_BLUE}@@!  @@@  
+{Color.BRIGHT_GREEN}            !@!  @!@  {Color.BRIGHT_MAGENTA}!@!       {Color.BRIGHT_RED}!@   @!@      {Color.BRIGHT_CYAN}!@!       {Color.BRIGHT_YELLOW}!@!  @!@  {Color.BRIGHT_BLUE}!@   @!@  
+{Color.BRIGHT_GREEN}            @!@  !@!  {Color.BRIGHT_MAGENTA}!!@@!!    {Color.BRIGHT_RED}@!@!@!@       {Color.BRIGHT_CYAN}@!!       {Color.BRIGHT_YELLOW}@!@!@!@!  {Color.BRIGHT_BLUE}@!@!@!@   
+{Color.BRIGHT_GREEN}            !@!  !!!  {Color.BRIGHT_MAGENTA} !!@!!!   {Color.BRIGHT_RED}!!!@!!!!      {Color.BRIGHT_CYAN}!!!       {Color.BRIGHT_YELLOW}!!!@!!!!  {Color.BRIGHT_BLUE}!!!@!!!!  
+{Color.BRIGHT_GREEN}            !!:  !!!  {Color.BRIGHT_MAGENTA}    !:!   {Color.BRIGHT_RED}!!:  !!!      {Color.BRIGHT_CYAN}!!:       {Color.BRIGHT_YELLOW}!!:  !!!  {Color.BRIGHT_BLUE}!!:  !!!  
+{Color.BRIGHT_GREEN}            :!:  !:!  {Color.BRIGHT_MAGENTA}   !:!    {Color.BRIGHT_RED}:!:  !:!      {Color.BRIGHT_CYAN} :!:      {Color.BRIGHT_YELLOW}:!:  !:!  {Color.BRIGHT_BLUE}:!:  !:!  
+{Color.BRIGHT_GREEN}            ::::: ::  {Color.BRIGHT_MAGENTA}:::: ::   {Color.BRIGHT_RED} :: ::::      {Color.BRIGHT_CYAN} :: ::::  {Color.BRIGHT_YELLOW}::   :::  {Color.BRIGHT_BLUE} :: ::::  
+{Color.BRIGHT_GREEN}             : :  :   {Color.BRIGHT_MAGENTA}:: : :    {Color.BRIGHT_RED}:: : ::       {Color.BRIGHT_CYAN}: :: : :  {Color.BRIGHT_YELLOW} :   : :  {Color.BRIGHT_BLUE}:: : ::    
+                                                         
+                                                         
+        {Color.BRIGHT_MAGENTA}══════════════════════════════════════════════════════════════════════
+                {Color.WHITE}USB DRIVE ANALYSIS · TESTING · BENCHMARKING SUITE
+        {Color.BRIGHT_MAGENTA}══════════════════════════════════════════════════════════════════════
+
+{Color.BRIGHT_CYAN}            [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Read-Only Inspection        [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Sequential R/W Testing
+{Color.BRIGHT_CYAN}            [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Drive Classification        [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Random 4K IOPS Testing
+{Color.BRIGHT_CYAN}            [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Health Verification         [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Sustained Performance Tests
+{Color.BRIGHT_CYAN}            [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Performance Logging         [{Color.BRIGHT_YELLOW}●{Color.BRIGHT_CYAN}] Small File Operation Tests
+
+            {Color.BRIGHT_YELLOW}Version 0.3.0{Color.WHITE} - macOS Edition  {Color.BRIGHT_CYAN}|{Color.WHITE}  Offline Only  {Color.BRIGHT_CYAN}|{Color.WHITE}  Read/Write
+
+{Color.RESET}
+
 """
     print(header)
 
