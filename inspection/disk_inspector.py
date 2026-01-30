@@ -21,30 +21,43 @@ class DiskInspector:
     SMART_AUTO: Automatically choose based on mount status
     """
 
-    def __init__(self, db: Optional[DatabaseManager] = None):
+    def __init__(self, db: Optional[DatabaseManager] = None, settings=None):
         self.backend = DiskUtilBackend()
         self.detector = ContentDetector()
         self.mount_helper = MountHelper()
         self.db = db
+        self.settings = settings
 
-    def enumerate_external_disks(self, mode: InspectionMode = InspectionMode.SMART_AUTO) -> List[PhysicalDisk]:
+    def enumerate_external_disks(self, mode: InspectionMode = None) -> List[PhysicalDisk]:
         """
         Enumerate all external physical disks.
 
         Args:
-            mode: Inspection mode (defaults to SMART_AUTO)
+            mode: Inspection mode (defaults to setting or SMART_AUTO)
 
         Returns:
             List of PhysicalDisk objects representing external drives
         """
+        # Use settings default if mode not specified
+        if mode is None:
+            if self.settings:
+                mode_str = self.settings.get('default_inspection_mode', 'smart_auto')
+                mode = InspectionMode.SMART_AUTO  # Default to SMART_AUTO
+                if mode_str == 'metadata_only':
+                    mode = InspectionMode.METADATA_ONLY
+                elif mode_str == 'mounted_readonly':
+                    mode = InspectionMode.MOUNTED_READONLY
+            else:
+                mode = InspectionMode.SMART_AUTO
+
         all_disk_ids = self.backend.list_all_disks()
         external_disks = []
 
         for disk_id in all_disk_ids:
             disk = self._inspect_physical_disk(disk_id, mode)
             if disk and disk.is_external:
-                # Log to database if available
-                if self.db:
+                # Log to database if available and settings allow
+                if self.db and (not self.settings or self.settings.get('auto_log_inspections', True)):
                     drive_id = self.db.register_drive(disk)
                     self.db.log_inspection(drive_id, disk)
 

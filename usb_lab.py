@@ -10,6 +10,7 @@ from ui.colors import Color
 from database.db_manager import DatabaseManager
 from inspection.disk_inspector import DiskInspector
 from ui.menus import MenuSystem
+from settings.settings_manager import SettingsManager
 
 
 def main():
@@ -24,11 +25,14 @@ def main():
     # Initialize database
     db = DatabaseManager()
 
-    # Create inspector with database access
-    inspector = DiskInspector(db=db)
+    # Initialize settings
+    settings = SettingsManager()
 
-    # Create menu system with both inspector and database
-    menu = MenuSystem(inspector, db)
+    # Create inspector with database and settings access
+    inspector = DiskInspector(db=db, settings=settings)
+
+    # Create menu system with inspector, database, and settings
+    menu = MenuSystem(inspector, db, settings)
 
     # Main application loop
     while True:

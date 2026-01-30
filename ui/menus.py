@@ -3,36 +3,44 @@ Menu system for USB LAB.
 """
 
 from typing import Optional
+from pathlib import Path
 from core.models import PhysicalDisk
 from database.db_manager import DatabaseManager
-from inspection.disk_inspector import DiskInspector  
+from inspection.disk_inspector import DiskInspector
 from testing.test_engine import DriveTestEngine
 from ui.colors import Color
 from ui.display import clear_screen, print_header, print_section, print_success, print_warning, print_error
 from ui.reporters import DiskReporter
+from ui.test_history import TestHistoryViewer
+from ui.drive_database import DriveDatabase
+from ui.settings_menu import SettingsMenu
 
 class MenuSystem:
     """
     Interactive menu system for USB LAB.
-    
+
     Provides navigation between different tool functions.
     """
-    
-    def __init__(self, inspector: 'DiskInspector', db: DatabaseManager):
+
+    def __init__(self, inspector: 'DiskInspector', db: DatabaseManager, settings):
         self.inspector = inspector
         self.db = db
-    
+        self.settings = settings
+        self.test_history = TestHistoryViewer(db)
+        self.drive_db = DriveDatabase(db)
+        self.settings_ui = SettingsMenu(settings)
+
     def display_main_menu(self) -> Optional[str]:
         """
         Display main menu and get user choice.
-        
+
         Returns:
             Menu choice or None to exit
         """
         print(f"\n{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}")
         print(f"{Color.BOLD}{Color.BRIGHT_WHITE}MAIN MENU{Color.RESET}")
         print(f"{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}\n")
-        
+
         menu_items = [
             ("1", "Examine Drives", "Inspect USB drives (read-only, auto-detect)"),
             ("2", "Read/Write Speed Tests", "Benchmark drive performance"),
@@ -249,257 +257,12 @@ class MenuSystem:
 
     def test_history_menu(self):
         """Submenu for viewing test history"""
-        clear_screen()
-        print_header()
-
-        print_section("Test History", Color.BRIGHT_MAGENTA)
-
-        # Get all drives from database
-        cursor = self.db.conn.cursor()
-        cursor.execute('''
-            SELECT drive_id, vendor, model, capacity_bytes, last_seen 
-            FROM drives 
-            ORDER BY last_seen DESC
-        ''')
-        drives = cursor.fetchall()
-
-        if not drives:
-            print_warning("No drives in database yet")
-            print(f"\n{Color.CYAN}Inspect or test a drive to start logging data.{Color.RESET}")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to main menu...{Color.RESET}")
-            return
-
-        # Display drives with test history
-        print(f"{Color.BRIGHT_WHITE}Drives with Test History:{Color.RESET}\n")
-
-        for i, drive in enumerate(drives, 1):
-            drive_id = drive['drive_id']
-
-            # Count tests for this drive
-            cursor.execute('SELECT COUNT(*) as count FROM test_runs WHERE drive_id = ?', (drive_id,))
-            test_count = cursor.fetchone()['count']
-
-            # Count inspections
-            cursor.execute('SELECT COUNT(*) as count FROM inspection_history WHERE drive_id = ?', (drive_id,))
-            inspection_count = cursor.fetchone()['count']
-
-            capacity_gb = drive['capacity_bytes'] / (1024**3)
-
-            print(f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{drive['vendor']} {drive['model']}{Color.RESET}")
-            print(f"      {capacity_gb:.1f} GB | Last seen: {drive['last_seen']}")
-            print(f"      {Color.CYAN}{inspection_count} inspection(s), {test_count} test(s){Color.RESET}")
-            print()
-
-        print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
-
-        print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
-        choice = input(f"{Color.BRIGHT_GREEN}Select drive to view history: {Color.RESET}").strip().upper()
-
-        if choice == 'B':
-            return
-
-        try:
-            index = int(choice) - 1
-            if 0 <= index < len(drives):
-                drive_id = drives[index]['drive_id']
-                self._display_drive_history(drive_id)
-        except ValueError:
-            print_error("Invalid selection")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
-
-    def _display_drive_history(self, drive_id: str):
-        """Display complete history for a specific drive"""
-        clear_screen()
-        print_header()
-
-        # Get drive history
-        history = self.db.get_drive_history(drive_id)
-
-        if not history['drive']:
-            print_error("Drive not found in database")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
-            return
-
-        drive = history['drive']
-
-        # Display drive info
-        print(f"\n{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}")
-        print(f"{Color.BOLD}{Color.BRIGHT_WHITE}DRIVE HISTORY: {drive['vendor']} {drive['model']}{Color.RESET}")
-        print(f"{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}\n")
-
-        print(f"{Color.BRIGHT_WHITE}Drive Information:{Color.RESET}")
-        print(f"  ID: {drive['drive_id'][:16]}...")
-        print(f"  Capacity: {drive['capacity_bytes'] / (1024**3):.1f} GB")
-        print(f"  Bus: {drive['bus_protocol']}")
-        print(f"  First Seen: {drive['first_seen']}")
-        print(f"  Last Seen: {drive['last_seen']}")
-        print()
-
-        # Display inspection history
-        if history['inspections']:
-            print(f"{Color.BRIGHT_WHITE}Inspection History ({len(history['inspections'])}):{Color.RESET}")
-            for inspection in history['inspections'][:5]:  # Show last 5
-                print(f"\n  {Color.CYAN}[{inspection['timestamp']}]{Color.RESET}")
-                print(f"    Type: {inspection['disk_type']}")
-                print(f"    Confidence: {inspection['classification_confidence']}")
-                print(f"    Partitions: {inspection['num_partitions']}")
-
-            if len(history['inspections']) > 5:
-                print(f"\n  {Color.YELLOW}... and {len(history['inspections']) - 5} more{Color.RESET}")
-            print()
-
-        # Display test results
-        if history['tests']:
-            print(f"{Color.BRIGHT_WHITE}Performance Test Results ({len(history['tests'])}):{Color.RESET}\n")
-
-            # Group by test type
-            test_types = {}
-            for test in history['tests']:
-                test_type = test['test_type']
-                if test_type not in test_types:
-                    test_types[test_type] = []
-                test_types[test_type].append(test)
-
-            for test_type, tests in test_types.items():
-                print(f"  {Color.BRIGHT_CYAN}{test_type.replace('_', ' ').title()}:{Color.RESET}")
-
-                # Show latest result and average
-                latest = tests[0]
-                avg_speed = sum(t['speed_mbps'] or 0 for t in tests) / len(tests)
-
-                print(f"    Latest: {latest['speed_mbps']:.2f} MB/s ({latest['timestamp']})")
-                if len(tests) > 1:
-                    print(f"    Average: {avg_speed:.2f} MB/s ({len(tests)} test runs)")
-
-                if latest.get('iops'):
-                    avg_iops = sum(t['iops'] or 0 for t in tests) / len(tests)
-                    print(f"    Latest IOPS: {latest['iops']:.1f}")
-                    if len(tests) > 1:
-                        print(f"    Average IOPS: {avg_iops:.1f}")
-                print()
-        else:
-            print(f"{Color.YELLOW}No performance tests recorded yet{Color.RESET}\n")
-
-        input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to test history...{Color.RESET}")
+        self.test_history.show_test_history_menu()
 
     def database_menu(self):
         """Submenu for drive database management"""
-        clear_screen()
-        print_header()
-
-        print_section("Drive Database", Color.BRIGHT_BLUE)
-
-        # Get database statistics
-        cursor = self.db.conn.cursor()
-
-        cursor.execute('SELECT COUNT(*) as count FROM drives')
-        drive_count = cursor.fetchone()['count']
-
-        cursor.execute('SELECT COUNT(*) as count FROM test_runs')
-        test_count = cursor.fetchone()['count']
-
-        cursor.execute('SELECT COUNT(*) as count FROM inspection_history')
-        inspection_count = cursor.fetchone()['count']
-
-        cursor.execute('SELECT COUNT(DISTINCT drive_id) as count FROM test_runs')
-        tested_drive_count = cursor.fetchone()['count']
-
-        # Display statistics
-        print(f"{Color.BRIGHT_WHITE}Database Statistics:{Color.RESET}\n")
-        print(f"  Total Drives Registered: {Color.BRIGHT_CYAN}{drive_count}{Color.RESET}")
-        print(f"  Total Inspections: {Color.BRIGHT_CYAN}{inspection_count}{Color.RESET}")
-        print(f"  Total Test Runs: {Color.BRIGHT_CYAN}{test_count}{Color.RESET}")
-        print(f"  Drives with Test Data: {Color.BRIGHT_CYAN}{tested_drive_count}{Color.RESET}")
-        print()
-
-        print(f"  Database Location: {Color.CYAN}{self.db.db_path}{Color.RESET}")
-        print()
-
-        # Show recent activity
-        print(f"{Color.BRIGHT_WHITE}Recent Activity:{Color.RESET}\n")
-
-        cursor.execute('''
-            SELECT d.vendor, d.model, d.last_seen, 
-                   (SELECT COUNT(*) FROM test_runs WHERE drive_id = d.drive_id) as test_count
-            FROM drives d
-            ORDER BY d.last_seen DESC
-            LIMIT 5
-        ''')
-        recent_drives = cursor.fetchall()
-
-        if recent_drives:
-            for drive in recent_drives:
-                print(f"  {Color.CYAN}{drive['vendor']} {drive['model']}{Color.RESET}")
-                print(f"    Last seen: {drive['last_seen']} | Tests: {drive['test_count']}")
-                print()
-        else:
-            print(f"  {Color.YELLOW}No drives in database yet{Color.RESET}\n")
-
-        # Menu options
-        print(f"\n{Color.BRIGHT_WHITE}Options:{Color.RESET}\n")
-        print(f"  {Color.BRIGHT_YELLOW}[1]{Color.RESET} View all drives")
-        print(f"  {Color.BRIGHT_YELLOW}[2]{Color.RESET} Export database (coming soon)")
-        print(f"  {Color.BRIGHT_YELLOW}[3]{Color.RESET} Clear database (coming soon)")
-        print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
-
-        print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
-        choice = input(f"{Color.BRIGHT_GREEN}Select option: {Color.RESET}").strip().upper()
-
-        if choice == '1':
-            self._view_all_drives()
-        elif choice == 'B':
-            return
-        else:
-            print_warning("Option not yet implemented")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
-
-    def _view_all_drives(self):
-        """View all drives in database"""
-        clear_screen()
-        print_header()
-
-        print_section("All Registered Drives", Color.BRIGHT_BLUE)
-
-        cursor = self.db.conn.cursor()
-        cursor.execute('''
-            SELECT drive_id, vendor, model, serial_number, capacity_bytes, 
-                   bus_protocol, first_seen, last_seen
-            FROM drives
-            ORDER BY last_seen DESC
-        ''')
-        drives = cursor.fetchall()
-
-        if not drives:
-            print_warning("No drives in database")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to return...{Color.RESET}")
-            return
-
-        print(f"{Color.BRIGHT_WHITE}Total Drives: {len(drives)}{Color.RESET}\n")
-
-        for i, drive in enumerate(drives, 1):
-            print(f"{Color.BRIGHT_YELLOW}[{i}] {drive['vendor']} {drive['model']}{Color.RESET}")
-            print(f"    Serial: {drive['serial_number']}")
-            print(f"    Capacity: {drive['capacity_bytes'] / (1024**3):.1f} GB")
-            print(f"    Bus: {drive['bus_protocol']}")
-            print(f"    First seen: {drive['first_seen']}")
-            print(f"    Last seen: {drive['last_seen']}")
-
-            # Get test count
-            cursor.execute('SELECT COUNT(*) as count FROM test_runs WHERE drive_id = ?',
-                          (drive['drive_id'],))
-            test_count = cursor.fetchone()['count']
-            print(f"    {Color.CYAN}Tests recorded: {test_count}{Color.RESET}")
-            print()
-
-        input(f"\n{Color.BRIGHT_WHITE}Press Enter to return...{Color.RESET}")
+        self.drive_db.show_database_menu()
 
     def settings_menu(self):
-        """Submenu for settings"""
-        clear_screen()
-        print_header()
-
-        print_section("Settings & Configuration", Color.BRIGHT_CYAN)
-        print(f"{Color.BRIGHT_RED}⚠ COMING SOON{Color.RESET}")
-        print(f"{Color.WHITE}Configuration options will be implemented next.{Color.RESET}\n")
-
-        input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to main menu...{Color.RESET}")
+        """Settings and configuration menu"""
+        self.settings_ui.show_settings_menu()
