@@ -14,29 +14,29 @@ from ui.menus import MenuSystem
 
 def main():
     """Main application entry point"""
-    
+
     # Check for macOS
     if sys.platform != 'darwin':
         print_error("USB LAB currently requires macOS")
         print("Linux support is planned for future releases")
         sys.exit(1)
-    
+
     # Initialize database
     db = DatabaseManager()
-    
-    # Create inspector
-    inspector = DiskInspector()
-    
-    # Create menu system
+
+    # Create inspector with database access
+    inspector = DiskInspector(db=db)
+
+    # Create menu system with both inspector and database
     menu = MenuSystem(inspector, db)
-    
+
     # Main application loop
     while True:
         clear_screen()
         print_header()
-        
+
         choice = menu.display_main_menu()
-        
+
         if choice == '1':
             menu.examine_drives_menu()
         elif choice == '2':
@@ -68,5 +68,6 @@ if __name__ == '__main__':
     except Exception as e:
         print_error(f"Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

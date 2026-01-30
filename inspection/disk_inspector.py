@@ -1,5 +1,6 @@
 """
 Disk inspection coordinator with two-phase inspection.
+Updated with SMART_AUTO mode and database logging.
 """
 
 from typing import List, Optional, Tuple
@@ -8,6 +9,7 @@ from core.enums import FilesystemType, DiskType, InspectionMode
 from backend.macos_diskutil import DiskUtilBackend
 from detection.content_detector import ContentDetector
 from inspection.mount_helper import MountHelper
+from database.db_manager import DatabaseManager
 
 
 class DiskInspector:
@@ -15,28 +17,22 @@ class DiskInspector:
     Main disk inspection coordinator with two-phase inspection.
 
     Phase 1: Metadata-only (safe, no mounting)
-    - Lists all external drives
-    - Shows hardware specs (USB controller, size, etc.)
-    - Detects what's possible from partition metadata
-    - Shows mount status
-
-    Phase 2: Mounted inspection (user chooses, read-only)
-    - Mounts partitions read-only
-    - Detects installer markers, UEFI, etc.
-    - Unmounts when done
+    Phase 2: Mounted inspection (read-only filesystem scan)
+    SMART_AUTO: Automatically choose based on mount status
     """
 
-    def __init__(self):
+    def __init__(self, db: Optional[DatabaseManager] = None):
         self.backend = DiskUtilBackend()
         self.detector = ContentDetector()
         self.mount_helper = MountHelper()
+        self.db = db
 
-    def enumerate_external_disks(self, mode: InspectionMode = InspectionMode.METADATA_ONLY) -> List[PhysicalDisk]:
+    def enumerate_external_disks(self, mode: InspectionMode = InspectionMode.SMART_AUTO) -> List[PhysicalDisk]:
         """
         Enumerate all external physical disks.
 
         Args:
-            mode: Inspection mode (METADATA_ONLY or MOUNTED_READONLY)
+            mode: Inspection mode (defaults to SMART_AUTO)
 
         Returns:
             List of PhysicalDisk objects representing external drives
@@ -47,6 +43,11 @@ class DiskInspector:
         for disk_id in all_disk_ids:
             disk = self._inspect_physical_disk(disk_id, mode)
             if disk and disk.is_external:
+                # Log to database if available
+                if self.db:
+                    drive_id = self.db.register_drive(disk)
+                    self.db.log_inspection(drive_id, disk)
+
                 external_disks.append(disk)
 
         return external_disks
@@ -106,7 +107,8 @@ class DiskInspector:
 
         # Map filesystem type
         fs_type_str = info.get('FilesystemType', 'Unknown')
-        fs_type = self._map_filesystem_type(fs_type_str)
+        content_str = info.get('Content', 'Unknown')
+        fs_type = self._map_filesystem_type(fs_type_str, content_str)
 
         partition = Partition(
             identifier=partition_id,
@@ -118,26 +120,30 @@ class DiskInspector:
             is_mounted=info.get('MountPoint') is not None
         )
 
-        # Detect content based on mode
-        if mode == InspectionMode.METADATA_ONLY:
-            # Phase 1: Metadata-only detection (no mounting required)
+        # SMART_AUTO MODE: Automatically choose best inspection method
+        if mode == InspectionMode.SMART_AUTO:
+            if partition.is_mounted:
+                effective_mode = InspectionMode.MOUNTED_READONLY
+            else:
+                effective_mode = InspectionMode.METADATA_ONLY
+        else:
+            effective_mode = mode
+
+        # Detect content based on effective mode
+        if effective_mode == InspectionMode.METADATA_ONLY:
+            # Phase 1: Metadata-only detection (no filesystem scanning)
             disk_type, notes = self.detector.inspect_unmounted_partition(partition_id)
             if disk_type != DiskType.UNKNOWN:
                 partition.installer_type = disk_type
                 partition.detected_markers = notes
 
-        elif mode == InspectionMode.MOUNTED_READONLY:
-            # Phase 2: Mounted detection (requires mounting)
+        elif effective_mode == InspectionMode.MOUNTED_READONLY:
+            # Phase 2: Mounted detection (scan filesystem for installer markers)
             if partition.mount_point:
-                # Already mounted - inspect it
                 disk_type, markers = self.detector.detect_content_type(partition.mount_point)
                 partition.contains_installer_markers = len(markers) > 0
                 partition.installer_type = disk_type if disk_type != DiskType.DATA_DISK else None
                 partition.detected_markers = markers
-            else:
-                # Not mounted - could mount read-only if needed
-                # This would be triggered by user choice in CLI
-                pass
 
         return partition
 
@@ -193,32 +199,61 @@ class DiskInspector:
         """
         self.mount_helper.unmount(partition_id, mount_point)
 
-    def _map_filesystem_type(self, fs_str: str) -> FilesystemType:
-        """Map diskutil filesystem string to FilesystemType enum"""
+    def _map_filesystem_type(self, fs_str: str, content_str: str = '') -> FilesystemType:
+        """
+        Map diskutil filesystem string to FilesystemType enum.
+        Checks both FilesystemType and Content fields.
+        """
         fs_upper = fs_str.upper()
+        content_upper = content_str.upper()
+        combined = f"{fs_upper} {content_upper}"
 
-        if 'APFS' in fs_upper:
+        # APFS variants
+        if 'APFS' in combined:
             return FilesystemType.APFS
-        elif 'JHFS+' in fs_upper or 'JOURNALED HFS+' in fs_upper:
+
+        # HFS+ variants (Journaled)
+        if 'JHFS+' in combined or 'JOURNALED HFS+' in combined or 'JOURNAL' in combined:
             return FilesystemType.JHFS_PLUS
-        elif 'HFS+' in fs_upper:
+
+        # HFS+ variants (non-journaled)
+        if 'HFS+' in combined or 'HFS PLUS' in combined:
             return FilesystemType.HFS_PLUS
-        elif 'EXFAT' in fs_upper:
+
+        # HFS (old Mac OS Standard) - treat as HFS+
+        if fs_upper == 'HFS' or 'APPLE_HFS' in content_upper:
+            return FilesystemType.HFS_PLUS
+
+        # exFAT variants
+        if 'EXFAT' in combined or 'EXFAT' in fs_str:
             return FilesystemType.EXFAT
-        elif 'FAT32' in fs_upper or 'MSDOS' in fs_upper:
+
+        # FAT32 variants
+        if 'FAT32' in combined or 'MSDOS' in combined or 'FAT' in combined:
             return FilesystemType.FAT32
-        elif 'NTFS' in fs_upper:
+
+        # NTFS variants
+        if 'NTFS' in combined:
             return FilesystemType.NTFS
-        elif 'EXT4' in fs_upper:
+
+        # EXT variants
+        if 'EXT4' in combined or 'EXT3' in combined or 'EXT2' in combined:
             return FilesystemType.EXT4
-        elif 'ISO' in fs_upper:
+
+        # ISO9660
+        if 'ISO' in combined or '9660' in combined:
             return FilesystemType.ISO9660
-        elif 'UDF' in fs_upper:
+
+        # UDF
+        if 'UDF' in combined:
             return FilesystemType.UDF
-        elif 'FREE' in fs_upper:
+
+        # Free space
+        if 'FREE' in combined or 'UNFORMATTED' in combined:
             return FilesystemType.FREE_SPACE
-        else:
-            return FilesystemType.UNKNOWN
+
+        # Unrecognized
+        return FilesystemType.UNKNOWN
 
     def _classify_disk(self, disk: PhysicalDisk):
         """
@@ -252,10 +287,9 @@ class DiskInspector:
                 f"Detected {len(installer_partitions)} installer partition(s)"
             )
 
-            # Add marker details (but limit to avoid logging file contents)
+            # Add marker details (limited to avoid excessive logging)
             for part in installer_partitions:
                 if part.detected_markers:
-                    # Show count of markers, not full list
                     disk.classification_notes.append(
                         f"  {part.identifier}: {part.installer_type.value} ({len(part.detected_markers)} markers)"
                     )
@@ -270,9 +304,12 @@ class DiskInspector:
                     f"{len(unmounted)} partition(s) not mounted - limited inspection"
                 )
                 disk.classification_notes.append(
-                    "Suggestion: Mount read-only for detailed detection"
+                    "Mount partitions for full detection"
                 )
             else:
+                # All partitions mounted and inspected
                 disk.disk_type = DiskType.DATA_DISK
-                disk.classification_confidence = "Medium"
-                disk.classification_notes.append("No installer markers detected")
+                disk.classification_confidence = "High"
+                disk.classification_notes.append(
+                    f"All {len(disk.partitions)} partition(s) inspected - appears to be data storage"
+                )

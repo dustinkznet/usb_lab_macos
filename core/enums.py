@@ -63,6 +63,7 @@ class FilesystemType(Enum):
 
 class InspectionMode(Enum):
     """Mode of disk inspection"""
-    METADATA_ONLY = "metadata_only"  # Safe, no mounting
-    MOUNTED_READONLY = "mounted_readonly"  # Detailed, read-only
-    FULL_ACCESS = "full_access"  # For speed tests, read-write
+    METADATA_ONLY = "metadata_only"      # Safe, no mounting, limited detection
+    MOUNTED_READONLY = "mounted_readonly"  # Detailed, read-only filesystem scan
+    SMART_AUTO = "smart_auto"            # Automatically choose based on mount status
+    FULL_ACCESS = "full_access"          # For speed tests, read-write
