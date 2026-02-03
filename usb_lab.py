@@ -31,7 +31,7 @@ def main():
     # Create inspector with database and settings access
     inspector = DiskInspector(db=db, settings=settings)
 
-    # Create menu system with inspector, database, and settings
+    # Create menu system
     menu = MenuSystem(inspector, db, settings)
 
     # Main application loop
@@ -41,26 +41,20 @@ def main():
 
         choice = menu.display_main_menu()
 
-        if choice == '1':
-            menu.examine_drives_menu()
-        elif choice == '2':
-            menu.speed_test_menu()
-        elif choice == '3':
-            menu.test_history_menu()
-        elif choice == '4':
-            menu.database_menu()
-        elif choice == '5':
-            menu.settings_menu()
-        elif choice == 'Q':
+        if not choice:
+            continue
+
+        # Handle menu choice
+        should_continue = menu.handle_choice(choice)
+
+        if not should_continue:
+            # User chose to quit
             clear_screen()
             print(f"\n{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}")
             print(f"{Color.BRIGHT_YELLOW}Thank you for using USB LAB!{Color.RESET}")
             print(f"{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}\n")
             db.close()
             sys.exit(0)
-        else:
-            print_error("Invalid menu option")
-            input(f"\nPress Enter to continue...")
 
 
 if __name__ == '__main__':
