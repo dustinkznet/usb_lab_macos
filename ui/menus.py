@@ -90,8 +90,20 @@ class MenuSystem:
             else:
                 mount_status = f"{Color.BRIGHT_RED}○ NOT MOUNTED{Color.RESET}"
 
+            # Get volume name from first mounted partition
+            volume_name = None
+            for p in disk.partitions:
+                if p.volume_name:
+                    volume_name = p.volume_name
+                    break
+
             print(f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{disk.identifier}{Color.RESET} - {Color.WHITE}{disk.name}{Color.RESET} {mount_status}")
             print(f"      {disk.size_human} | {disk.bus_protocol} | {total_count} partition(s)")
+
+            # ADDED: Show volume name on third line
+            if volume_name:
+                print(f"      {Color.BRIGHT_MAGENTA}Volume:{Color.RESET} {Color.WHITE}{volume_name}{Color.RESET}")
+
             print()
 
         print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
@@ -149,8 +161,20 @@ class MenuSystem:
             status_color = Color.BRIGHT_GREEN if can_test else Color.BRIGHT_RED
             status_icon = "✓" if can_test else "✗"
 
+            # Get volume name
+            volume_name = None
+            for p in disk.partitions:
+                if p.volume_name:
+                    volume_name = p.volume_name
+                    break
+
             print(f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{disk.identifier}{Color.RESET} - {Color.WHITE}{disk.name}{Color.RESET}")
             print(f"      Size: {disk.size_human} | Type: {disk.disk_type.value}")
+
+            # Show volume name
+            if volume_name:
+                print(f"      {Color.BRIGHT_MAGENTA}Volume:{Color.RESET} {Color.WHITE}{volume_name}{Color.RESET}")
+
             print(f"      {status_color}{status_icon} {reason}{Color.RESET}")
             print()
 

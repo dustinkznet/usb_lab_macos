@@ -14,30 +14,77 @@ from core.constants import (
 from backend.macos_diskutil import DiskUtilBackend
 
 
+# macOS system directories that should be IGNORED (not treated as installer markers)
+MACOS_SYSTEM_DIRS = {
+    '.Spotlight-V100',
+    '.fseventsd',
+    '.Trashes',
+    '.TemporaryItems',
+    '.DocumentRevisions-V100',
+    '.PKInstallSandboxManager',
+    '.PKInstallSandboxManager-SystemSoftware',
+    '.VolumeIcon.icns',
+    '.vol',
+    '.DS_Store',
+    '.metadata_never_index',
+    'Network Trash Folder',
+    'Temporary Items',
+    '$RECYCLE.BIN',
+    'System Volume Information',
+    '.apdisk',
+}
+
+
 class ContentDetector:
     """
     Detect disk content types by inspecting filesystem markers.
-    
+
     This class implements read-only inspection of mount points to identify
     installer media, boot disks, and other special-purpose content.
     """
-    
+
+    @classmethod
+    def _is_system_directory(cls, item_name: str) -> bool:
+        """
+        Check if an item is a macOS/system directory that should be ignored.
+
+        Args:
+            item_name: Name of file/directory to check
+
+        Returns:
+            True if this is a system directory to ignore
+        """
+        # Exact match against known system directories
+        if item_name in MACOS_SYSTEM_DIRS:
+            return True
+
+        # Pattern matches
+        if item_name.startswith('.') and any([
+            'spotlight' in item_name.lower(),
+            'fsevent' in item_name.lower(),
+            'trash' in item_name.lower(),
+            'temporary' in item_name.lower(),
+        ]):
+            return True
+
+        return False
+
     @classmethod
     def detect_content_type(cls, mount_point: str) -> Tuple[DiskType, List[str]]:
         """
         Detect content type by inspecting filesystem.
-        
+
         Args:
             mount_point: Path to mounted volume
-        
+
         Returns:
             (DiskType, list of detected markers)
         """
         if not mount_point or not os.path.exists(mount_point):
             return DiskType.UNKNOWN, []
-        
+
         detected_markers = []
-        
+
         # Check for UEFI partition FIRST (since it's very specific)
         # UEFI partitions have an EFI directory at root
         efi_path = os.path.join(mount_point, 'EFI')
@@ -96,14 +143,22 @@ class ContentDetector:
         if detected_markers:
             return DiskType.WINDOWS_INSTALLER, detected_markers
 
-        # Check if volume appears empty but has hidden files
+        # FIXED: Check if volume appears empty but has hidden files
+        # Filter out macOS system directories before determining if it's truly empty
         try:
             all_files = os.listdir(mount_point)
             visible_files = [f for f in all_files if not f.startswith('.')]
             hidden_files = [f for f in all_files if f.startswith('.')]
 
-            if not visible_files and hidden_files:
-                detected_markers.extend(hidden_files[:5])  # Sample of hidden files
+            # Filter hidden files to exclude system directories
+            non_system_hidden_files = [
+                f for f in hidden_files
+                if not cls._is_system_directory(f)
+            ]
+
+            # Only treat as "has hidden files" if there are non-system hidden files
+            if not visible_files and non_system_hidden_files:
+                detected_markers.extend(non_system_hidden_files[:5])  # Sample of hidden files
                 return DiskType.DATA_DISK, detected_markers
         except PermissionError:
             pass

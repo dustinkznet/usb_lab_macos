@@ -123,14 +123,28 @@ class DiskInspector:
         content_str = info.get('Content', 'Unknown')
         fs_type = self._map_filesystem_type(fs_type_str, content_str)
 
+        # FIXED: Get mount point and mounted status from diskutil plist
+        # diskutil info -plist returns 'MountPoint' as a string and 'Mounted' as a boolean
+        mount_point = info.get('MountPoint', '')
+
+        # The 'Mounted' field is a boolean in plist format
+        is_mounted = info.get('Mounted', False)
+
+        # Validate mount point - should be a real path, not empty or a device node
+        if mount_point and mount_point.startswith('/dev/'):
+            mount_point = None
+            is_mounted = False
+        elif not mount_point or mount_point == '':
+            is_mounted = False
+
         partition = Partition(
             identifier=partition_id,
             name=info.get('VolumeName', 'Untitled'),
             size_bytes=info.get('TotalSize', 0),
             filesystem=fs_type,
-            mount_point=info.get('MountPoint'),
+            mount_point=mount_point,
             volume_name=info.get('VolumeName'),
-            is_mounted=info.get('MountPoint') is not None
+            is_mounted=is_mounted
         )
 
         # SMART_AUTO MODE: Automatically choose best inspection method
