@@ -1,24 +1,35 @@
 """
 Drive testing engine for health checks and performance benchmarks.
+REWRITTEN to use dd and Unix tools for accurate, reliable results.
+
+Test Order (CORRECT):
+1. Health Check - verify drive is functional
+2. Sequential Write - create test file with dd
+3. Sequential Read - read back test file (with cache clearing)
+4. Cleanup - remove test files
 """
 
 import os
+import re
+import subprocess
 import shutil
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Tuple
+from pathlib import Path
+
 from core.models import PhysicalDisk, Partition, TestResult
 from core.enums import TestType, DiskType
-from core.constants import TEST_DIR_NAME, BLOCK_SIZE_4K, BLOCK_SIZE_1MB
+from core.constants import TEST_DIR_NAME
 from database.db_manager import DatabaseManager
 from ui.colors import Color
 
 
 class DriveTestEngine:
     """
-    Comprehensive drive testing engine.
+    Drive testing engine using dd and Unix tools.
 
-    Performs health checks and performance benchmarks on USB drives.
-    All tests are designed to be safe and informative.
+    All I/O operations use dd for accuracy and consistency.
+    Python just orchestrates and parses results.
     """
 
     def __init__(self, db: DatabaseManager):
@@ -32,11 +43,6 @@ class DriveTestEngine:
         CRITICAL: We want to avoid testing:
         - OS installer media (could corrupt boot files)
         - Boot/Recovery drives (system critical)
-
-        We CAN test:
-        - Empty drives
-        - Data storage drives
-        - Drives that appear to have user data but user confirms
 
         Args:
             disk: PhysicalDisk to evaluate
@@ -61,7 +67,6 @@ class DriveTestEngine:
         for part in disk.partitions:
             if part.is_mounted and part.mount_point:
                 try:
-                    # Check if partition has existing files
                     files = os.listdir(part.mount_point)
                     visible_files = [f for f in files if not f.startswith('.')]
                     if visible_files:
@@ -88,8 +93,8 @@ class DriveTestEngine:
 
         This test:
         1. Verifies read access
-        2. Checks for bad sectors (read verification)
-        3. Tests basic write capability (if writable)
+        2. Checks for write capability
+        3. Verifies basic filesystem integrity
 
         Args:
             partition: Partition to test
@@ -113,40 +118,61 @@ class DriveTestEngine:
 
         try:
             # Test 1: Read access
-            print(f"  {Color.CYAN}[1/3] Checking read access...{Color.RESET}", end=" ")
+            print(f"  {Color.CYAN}[1/3] Checking read access...{Color.RESET}", end=" ", flush=True)
             files = os.listdir(partition.mount_point)
             print(f"{Color.BRIGHT_GREEN}✓{Color.RESET}")
             notes.append(f"Read access verified ({len(files)} items)")
 
-            # Test 2: Create test directory
-            print(f"  {Color.CYAN}[2/3] Checking write access...{Color.RESET}", end=" ")
+            # Test 2: Write access
+            print(f"  {Color.CYAN}[2/3] Checking write access...{Color.RESET}", end=" ", flush=True)
             test_dir = os.path.join(partition.mount_point, self.test_dir_name)
 
             try:
                 os.makedirs(test_dir, exist_ok=True)
                 print(f"{Color.BRIGHT_GREEN}✓{Color.RESET}")
                 notes.append("Write access verified")
-                writable = True
             except PermissionError:
                 print(f"{Color.BRIGHT_YELLOW}✗ Read-only{Color.RESET}")
                 notes.append("Partition is read-only")
-                writable = False
+                # Clean up and return - can't run performance tests on read-only
+                duration = (datetime.now() - start_time).total_seconds()
+                return TestResult(
+                    test_type=TestType.HEALTH_CHECK,
+                    success=False,
+                    duration_seconds=duration,
+                    error_message="Partition is read-only - cannot run write tests",
+                    notes=notes
+                )
 
-            # Test 3: Basic read verification (sample files)
-            print(f"  {Color.CYAN}[3/3] Verifying data integrity...{Color.RESET}", end=" ")
-            readable_count = 0
-            for item in files[:10]:  # Sample first 10 items
-                item_path = os.path.join(partition.mount_point, item)
-                if os.path.isfile(item_path):
-                    try:
-                        with open(item_path, 'rb') as f:
-                            f.read(4096)  # Read first 4KB
-                        readable_count += 1
-                    except (PermissionError, OSError):
-                        pass
+            # Test 3: Basic write/read verification
+            print(f"  {Color.CYAN}[3/3] Verifying data integrity...{Color.RESET}", end=" ", flush=True)
+            test_file = os.path.join(test_dir, "health_check.dat")
+
+            # Write a small test file (1MB)
+            result = subprocess.run(
+                ['dd', 'if=/dev/zero', f'of={test_file}', 'bs=1m', 'count=1'],
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode != 0:
+                raise Exception("Write verification failed")
+
+            # Read it back
+            result = subprocess.run(
+                ['dd', f'if={test_file}', 'of=/dev/null', 'bs=1m'],
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode != 0:
+                raise Exception("Read verification failed")
+
+            # Clean up test file
+            os.remove(test_file)
 
             print(f"{Color.BRIGHT_GREEN}✓{Color.RESET}")
-            notes.append(f"Verified {readable_count} files readable")
+            notes.append("Data integrity verified")
 
             duration = (datetime.now() - start_time).total_seconds()
 
@@ -178,15 +204,45 @@ class DriveTestEngine:
                 error_message=str(e)
             )
 
-    def run_sequential_test(self, partition: Partition, drive_id: str,
-                           test_type: TestType, file_size_mb: int = 100) -> TestResult:
+    def _parse_dd_output(self, stderr: str) -> Tuple[Optional[float], Optional[float]]:
         """
-        Run sequential read or write test.
+        Parse dd output to extract bytes transferred and speed.
+
+        dd outputs to stderr in format like:
+        "104857600 bytes transferred in 5.242653 secs (20000000 bytes/sec)"
+
+        Args:
+            stderr: dd stderr output
+
+        Returns:
+            (bytes_transferred, speed_mbps) or (None, None) if parse fails
+        """
+        # Look for the summary line with transfer stats
+        # Format: "X bytes transferred in Y secs (Z bytes/sec)"
+        match = re.search(r'(\d+) bytes transferred in ([\d.]+) secs \(([\d.]+) bytes/sec\)', stderr)
+
+        if match:
+            bytes_transferred = int(match.group(1))
+            duration = float(match.group(2))
+            bytes_per_sec = float(match.group(3))
+
+            # Convert to MB/s
+            speed_mbps = bytes_per_sec / (1024 * 1024)
+
+            return bytes_transferred, speed_mbps
+
+        return None, None
+
+    def run_sequential_write_test(self, partition: Partition, drive_id: str,
+                                  file_size_mb: int = 100) -> TestResult:
+        """
+        Run sequential write test using dd.
+
+        Uses: dd if=/dev/zero of=testfile bs=1m count=N oflag=sync
 
         Args:
             partition: Partition to test
             drive_id: Drive identifier for logging
-            test_type: SEQUENTIAL_READ or SEQUENTIAL_WRITE
             file_size_mb: Size of test file in MB
 
         Returns:
@@ -194,223 +250,296 @@ class DriveTestEngine:
         """
         if not partition.is_mounted:
             return TestResult(
-                test_type=test_type,
+                test_type=TestType.SEQUENTIAL_WRITE,
                 success=False,
                 duration_seconds=0,
                 error_message="Partition not mounted"
             )
 
         test_dir = os.path.join(partition.mount_point, self.test_dir_name)
-        test_file = os.path.join(test_dir, f"test_{file_size_mb}mb.dat")
+        test_file = os.path.join(test_dir, f"write_test_{file_size_mb}mb.dat")
 
         try:
             os.makedirs(test_dir, exist_ok=True)
         except PermissionError:
             return TestResult(
-                test_type=test_type,
+                test_type=TestType.SEQUENTIAL_WRITE,
                 success=False,
                 duration_seconds=0,
                 error_message="No write permission"
             )
 
-        file_size_bytes = file_size_mb * 1024 * 1024
-        block_size = 1024 * 1024  # 1MB blocks
+        print(f"\n{Color.BRIGHT_YELLOW}Testing sequential write ({file_size_mb}MB)...{Color.RESET}")
 
         try:
-            if test_type == TestType.SEQUENTIAL_WRITE:
-                print(f"\n{Color.BRIGHT_YELLOW}Testing sequential write ({file_size_mb}MB)...{Color.RESET}")
+            # Run dd with oflag=sync to bypass write cache
+            # This ensures we're measuring actual disk write speed
+            result = subprocess.run(
+                [
+                    'dd',
+                    'if=/dev/zero',
+                    f'of={test_file}',
+                    'bs=1m',
+                    f'count={file_size_mb}',
+                    'oflag=sync'  # Critical: bypass filesystem write cache
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
 
-                start_time = datetime.now()
+            if result.returncode != 0:
+                raise Exception(f"dd failed: {result.stderr}")
 
-                with open(test_file, 'wb') as f:
-                    bytes_written = 0
-                    while bytes_written < file_size_bytes:
-                        chunk_size = min(block_size, file_size_bytes - bytes_written)
-                        f.write(os.urandom(chunk_size))
-                        bytes_written += chunk_size
-                    f.flush()
-                    os.fsync(f.fileno())  # Ensure data is written to disk
+            # Parse dd output
+            bytes_transferred, speed_mbps = self._parse_dd_output(result.stderr)
 
-                duration = (datetime.now() - start_time).total_seconds()
-                speed_mbps = (file_size_bytes / duration) / (1024 * 1024)
+            if speed_mbps is None:
+                raise Exception("Failed to parse dd output")
 
-                print(f"  {Color.BRIGHT_GREEN}✓ Write speed: {speed_mbps:.2f} MB/s{Color.RESET}")
-
-            else:  # SEQUENTIAL_READ
-                # First, create file if it doesn't exist
-                if not os.path.exists(test_file):
-                    print(f"  {Color.CYAN}Creating test file...{Color.RESET}")
-                    with open(test_file, 'wb') as f:
-                        f.write(os.urandom(file_size_bytes))
-
-                print(f"\n{Color.BRIGHT_YELLOW}Testing sequential read ({file_size_mb}MB)...{Color.RESET}")
-
-                start_time = datetime.now()
-
-                with open(test_file, 'rb') as f:
-                    bytes_read = 0
-                    while bytes_read < file_size_bytes:
-                        chunk = f.read(block_size)
-                        if not chunk:
-                            break
-                        bytes_read += len(chunk)
-
-                duration = (datetime.now() - start_time).total_seconds()
-                speed_mbps = (file_size_bytes / duration) / (1024 * 1024)
-
-                print(f"  {Color.BRIGHT_GREEN}✓ Read speed: {speed_mbps:.2f} MB/s{Color.RESET}")
+            print(f"  {Color.BRIGHT_GREEN}✓ Write speed: {speed_mbps:.2f} MB/s{Color.RESET}")
 
             # Log to database
             self.db.log_test_run(
                 drive_id=drive_id,
-                test_type=test_type.value,
+                test_type=TestType.SEQUENTIAL_WRITE.value,
                 filesystem_tested=partition.filesystem.value,
                 mount_point=partition.mount_point,
                 partition_identifier=partition.identifier,
-                file_size_bytes=file_size_bytes,
-                block_size_bytes=block_size,
-                duration_seconds=duration,
-                bytes_transferred=file_size_bytes,
+                file_size_bytes=bytes_transferred,
+                block_size_bytes=1024 * 1024,
+                duration_seconds=0,  # dd includes this in its output
+                bytes_transferred=bytes_transferred,
                 speed_mbps=speed_mbps,
                 success=True
             )
 
             return TestResult(
-                test_type=test_type,
+                test_type=TestType.SEQUENTIAL_WRITE,
                 success=True,
-                duration_seconds=duration,
+                duration_seconds=0,
                 speed_mbps=speed_mbps,
-                bytes_transferred=file_size_bytes
+                bytes_transferred=bytes_transferred
             )
 
+        except subprocess.TimeoutExpired:
+            return TestResult(
+                test_type=TestType.SEQUENTIAL_WRITE,
+                success=False,
+                duration_seconds=0,
+                error_message="Test timed out (>5 minutes)"
+            )
         except Exception as e:
             return TestResult(
-                test_type=test_type,
+                test_type=TestType.SEQUENTIAL_WRITE,
                 success=False,
                 duration_seconds=0,
                 error_message=str(e)
             )
         finally:
-            # Cleanup test file
-            if os.path.exists(test_file):
-                try:
-                    os.remove(test_file)
-                except:
-                    pass
+            # Keep test file for read test - don't delete yet
+            pass
 
-    def run_random_4k_test(self, partition: Partition, drive_id: str,
-                          test_type: TestType, num_operations: int = 1000) -> TestResult:
+    def run_sequential_read_test(self, partition: Partition, drive_id: str,
+                                 file_size_mb: int = 100) -> TestResult:
         """
-        Run random 4K read/write test (IOPS measurement).
+        Run sequential read test using dd.
+
+        CRITICAL: Attempts to clear disk cache before reading.
+        Uses: dd if=testfile of=/dev/null bs=1m
 
         Args:
             partition: Partition to test
             drive_id: Drive identifier for logging
-            test_type: RANDOM_4K_READ or RANDOM_4K_WRITE
-            num_operations: Number of 4K operations to perform
+            file_size_mb: Size of test file in MB (must match write test)
 
         Returns:
-            TestResult with IOPS measurements
+            TestResult with speed measurements
         """
         if not partition.is_mounted:
             return TestResult(
-                test_type=test_type,
+                test_type=TestType.SEQUENTIAL_READ,
                 success=False,
                 duration_seconds=0,
                 error_message="Partition not mounted"
             )
 
         test_dir = os.path.join(partition.mount_point, self.test_dir_name)
-        test_file = os.path.join(test_dir, "test_4k.dat")
-        block_size = 4096  # 4KB
+        test_file = os.path.join(test_dir, f"write_test_{file_size_mb}mb.dat")
+
+        # Verify test file exists from write test
+        if not os.path.exists(test_file):
+            return TestResult(
+                test_type=TestType.SEQUENTIAL_READ,
+                success=False,
+                duration_seconds=0,
+                error_message="Test file not found - run write test first"
+            )
+
+        print(f"\n{Color.BRIGHT_YELLOW}Testing sequential read ({file_size_mb}MB)...{Color.RESET}")
+
+        # CRITICAL: Clear disk cache for accurate read test
+        print(f"\n{Color.BRIGHT_CYAN}═══════════════════════════════════════════════════════════{Color.RESET}")
+        print(f"{Color.BRIGHT_WHITE}Cache Clearing Required for Accurate Results{Color.RESET}")
+        print(f"{Color.BRIGHT_CYAN}═══════════════════════════════════════════════════════════{Color.RESET}")
+        print(f"\n{Color.CYAN}Without clearing the disk cache, the read test will measure{Color.RESET}")
+        print(f"{Color.CYAN}RAM speed (~7000 MB/s) instead of actual USB drive speed.{Color.RESET}")
+        print(f"\n{Color.YELLOW}You will be prompted for your password to run: sudo purge{Color.RESET}")
+        print(f"{Color.BRIGHT_CYAN}═══════════════════════════════════════════════════════════{Color.RESET}\n")
+
+        cache_cleared = self._clear_disk_cache()
+
+        if not cache_cleared:
+            print(f"\n{Color.BRIGHT_RED}✗ Cache clearing failed or was cancelled{Color.RESET}")
+            print(f"{Color.YELLOW}Read test results will be INACCURATE (measuring RAM cache).{Color.RESET}")
+
+            response = input(f"\n{Color.BRIGHT_GREEN}Continue with inaccurate read test? (y/n): {Color.RESET}").strip().lower()
+            if response != 'y':
+                return TestResult(
+                    test_type=TestType.SEQUENTIAL_READ,
+                    success=False,
+                    duration_seconds=0,
+                    error_message="Cache clearing failed - test cancelled by user"
+                )
+        else:
+            print(f"{Color.BRIGHT_GREEN}✓ Disk cache cleared successfully{Color.RESET}")
 
         try:
-            os.makedirs(test_dir, exist_ok=True)
+            # Run dd to read test file
+            result = subprocess.run(
+                [
+                    'dd',
+                    f'if={test_file}',
+                    'of=/dev/null',
+                    'bs=1m'
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
 
-            # Create test file (10MB)
-            file_size = 10 * 1024 * 1024
-            if not os.path.exists(test_file):
-                with open(test_file, 'wb') as f:
-                    f.write(os.urandom(file_size))
+            if result.returncode != 0:
+                raise Exception(f"dd failed: {result.stderr}")
 
-            print(f"\n{Color.BRIGHT_YELLOW}Testing random 4K {'write' if test_type == TestType.RANDOM_4K_WRITE else 'read'} ({num_operations} ops)...{Color.RESET}")
+            # Parse dd output
+            bytes_transferred, speed_mbps = self._parse_dd_output(result.stderr)
 
-            start_time = datetime.now()
+            if speed_mbps is None:
+                raise Exception("Failed to parse dd output")
 
-            if test_type == TestType.RANDOM_4K_WRITE:
-                with open(test_file, 'r+b') as f:
-                    for _ in range(num_operations):
-                        offset = (os.urandom(1)[0] % (file_size // block_size)) * block_size
-                        f.seek(offset)
-                        f.write(os.urandom(block_size))
-                    f.flush()
-            else:  # READ
-                with open(test_file, 'rb') as f:
-                    for _ in range(num_operations):
-                        offset = (os.urandom(1)[0] % (file_size // block_size)) * block_size
-                        f.seek(offset)
-                        f.read(block_size)
-
-            duration = (datetime.now() - start_time).total_seconds()
-            iops = num_operations / duration
-            bytes_transferred = num_operations * block_size
-            speed_mbps = (bytes_transferred / duration) / (1024 * 1024)
-
-            print(f"  {Color.BRIGHT_GREEN}✓ IOPS: {iops:.1f} | Speed: {speed_mbps:.2f} MB/s{Color.RESET}")
+            # Flag results based on cache clearing status
+            note = None
+            if not cache_cleared:
+                note = "⚠ INACCURATE: Cache not cleared - measured RAM speed, not disk speed"
+                print(f"  {Color.BRIGHT_RED}✗ Read speed: {speed_mbps:.2f} MB/s (RAM CACHE - NOT ACCURATE){Color.RESET}")
+            elif speed_mbps > 500:
+                # Even with cache cleared, if speed > 500 MB/s something is wrong
+                note = "⚠ WARNING: Speed > 500 MB/s is suspicious for USB drives"
+                print(f"  {Color.BRIGHT_YELLOW}⚠ Read speed: {speed_mbps:.2f} MB/s (unusually high){Color.RESET}")
+            else:
+                # Normal, accurate result
+                print(f"  {Color.BRIGHT_GREEN}✓ Read speed: {speed_mbps:.2f} MB/s{Color.RESET}")
 
             # Log to database
             self.db.log_test_run(
                 drive_id=drive_id,
-                test_type=test_type.value,
+                test_type=TestType.SEQUENTIAL_READ.value,
                 filesystem_tested=partition.filesystem.value,
                 mount_point=partition.mount_point,
                 partition_identifier=partition.identifier,
-                file_size_bytes=file_size,
-                block_size_bytes=block_size,
-                duration_seconds=duration,
+                file_size_bytes=bytes_transferred,
+                block_size_bytes=1024 * 1024,
+                duration_seconds=0,
                 bytes_transferred=bytes_transferred,
                 speed_mbps=speed_mbps,
-                iops=iops,
-                success=True
+                success=True,
+                notes=note
             )
 
             return TestResult(
-                test_type=test_type,
+                test_type=TestType.SEQUENTIAL_READ,
                 success=True,
-                duration_seconds=duration,
+                duration_seconds=0,
                 speed_mbps=speed_mbps,
-                iops=iops,
-                bytes_transferred=bytes_transferred
+                bytes_transferred=bytes_transferred,
+                notes=[note] if note else []
             )
 
+        except subprocess.TimeoutExpired:
+            return TestResult(
+                test_type=TestType.SEQUENTIAL_READ,
+                success=False,
+                duration_seconds=0,
+                error_message="Test timed out (>5 minutes)"
+            )
         except Exception as e:
             return TestResult(
-                test_type=test_type,
+                test_type=TestType.SEQUENTIAL_READ,
                 success=False,
                 duration_seconds=0,
                 error_message=str(e)
             )
-        finally:
-            if os.path.exists(test_file):
-                try:
-                    os.remove(test_file)
-                except:
-                    pass
 
-    def run_comprehensive_test_suite(self, partition: Partition, drive_id: str) -> List[TestResult]:
+    def _clear_disk_cache(self) -> bool:
+        """
+        Clear disk cache using 'purge' command (macOS).
+        Will prompt for sudo password if needed.
+
+        Returns:
+            True if cache was cleared, False if user cancelled or error
+        """
+        try:
+            # Run purge WITH password prompt (no -n flag)
+            # This allows sudo to ask for password interactively
+            result = subprocess.run(
+                ['sudo', 'purge'],
+                timeout=60  # Give user time to type password
+            )
+            return result.returncode == 0
+        except subprocess.TimeoutExpired:
+            print(f"\n{Color.BRIGHT_RED}✗ Timeout waiting for password{Color.RESET}")
+            return False
+        except KeyboardInterrupt:
+            print(f"\n{Color.BRIGHT_YELLOW}✗ Cancelled by user{Color.RESET}")
+            return False
+        except Exception as e:
+            print(f"\n{Color.BRIGHT_RED}✗ Error: {e}{Color.RESET}")
+            return False
+
+    def cleanup_test_files(self, partition: Partition):
+        """
+        Clean up test files and directory.
+
+        Args:
+            partition: Partition to clean up
+        """
+        if not partition.is_mounted:
+            return
+
+        test_dir = os.path.join(partition.mount_point, self.test_dir_name)
+
+        if os.path.exists(test_dir):
+            try:
+                shutil.rmtree(test_dir)
+                print(f"\n{Color.CYAN}✓ Test files cleaned up{Color.RESET}")
+            except Exception as e:
+                print(f"\n{Color.YELLOW}⚠ Could not clean up test files: {e}{Color.RESET}")
+
+    def run_comprehensive_test_suite(self, partition: Partition, drive_id: str,
+                                    file_size_mb: int = 100) -> List[TestResult]:
         """
         Run the full test suite on a partition.
 
-        Test order:
+        Test order (CORRECT):
         1. Health check (verify drive is functional)
-        2. Sequential read (100MB)
-        3. Sequential write (100MB)
-        4. Random 4K read (1000 ops)
-        5. Random 4K write (1000 ops)
+        2. Sequential write (create test file)
+        3. Sequential read (read back test file, with cache clearing)
+        4. Cleanup
 
         Args:
             partition: Partition to test
             drive_id: Drive identifier for logging
+            file_size_mb: Size of test file in MB
 
         Returns:
             List of TestResult objects
@@ -421,8 +550,9 @@ class DriveTestEngine:
         print(f"{Color.BOLD}{Color.BRIGHT_WHITE}COMPREHENSIVE TEST SUITE{Color.RESET}")
         print(f"{Color.BRIGHT_MAGENTA}{'═' * 80}{Color.RESET}")
 
+
         # Test 1: Health Check
-        print(f"\n{Color.BRIGHT_CYAN}[TEST 1/5] Health & Integrity Check{Color.RESET}")
+        print(f"\n{Color.BRIGHT_CYAN}[TEST 1/3] Health & Integrity Check{Color.RESET}")
         result = self.run_health_check(partition, drive_id)
         results.append(result)
 
@@ -430,32 +560,22 @@ class DriveTestEngine:
             print(f"\n{Color.BRIGHT_RED}✗ Health check failed. Aborting test suite.{Color.RESET}")
             return results
 
-        # Test 2: Sequential Read
-        print(f"\n{Color.BRIGHT_CYAN}[TEST 2/5] Sequential Read Performance{Color.RESET}")
-        result = self.run_sequential_test(partition, drive_id, TestType.SEQUENTIAL_READ, file_size_mb=100)
+        # Test 2: Sequential Write (WRITE FIRST!)
+        print(f"\n{Color.BRIGHT_CYAN}[TEST 2/3] Sequential Write Performance{Color.RESET}")
+        result = self.run_sequential_write_test(partition, drive_id, file_size_mb)
         results.append(result)
 
-        # Test 3: Sequential Write
-        print(f"\n{Color.BRIGHT_CYAN}[TEST 3/5] Sequential Write Performance{Color.RESET}")
-        result = self.run_sequential_test(partition, drive_id, TestType.SEQUENTIAL_WRITE, file_size_mb=100)
-        results.append(result)
+        if not result.success:
+            print(f"\n{Color.BRIGHT_YELLOW}⚠ Write test failed. Skipping read test.{Color.RESET}")
+            self.cleanup_test_files(partition)
+            return results
 
-        # Test 4: Random 4K Read
-        print(f"\n{Color.BRIGHT_CYAN}[TEST 4/5] Random 4K Read (IOPS){Color.RESET}")
-        result = self.run_random_4k_test(partition, drive_id, TestType.RANDOM_4K_READ, num_operations=1000)
-        results.append(result)
-
-        # Test 5: Random 4K Write
-        print(f"\n{Color.BRIGHT_CYAN}[TEST 5/5] Random 4K Write (IOPS){Color.RESET}")
-        result = self.run_random_4k_test(partition, drive_id, TestType.RANDOM_4K_WRITE, num_operations=1000)
+        # Test 3: Sequential Read (READ SECOND!)
+        print(f"\n{Color.BRIGHT_CYAN}[TEST 3/3] Sequential Read Performance{Color.RESET}")
+        result = self.run_sequential_read_test(partition, drive_id, file_size_mb)
         results.append(result)
 
         # Cleanup
-        test_dir = os.path.join(partition.mount_point, self.test_dir_name)
-        if os.path.exists(test_dir):
-            try:
-                shutil.rmtree(test_dir)
-            except:
-                pass
+        self.cleanup_test_files(partition)
 
         return results

@@ -1,6 +1,7 @@
 """
 Disk inspection coordinator with two-phase inspection.
 Updated with SMART_AUTO mode and database logging.
+FIXED: Improved NTFS filesystem detection.
 """
 
 from typing import List, Optional, Tuple
@@ -230,10 +231,16 @@ class DiskInspector:
         """
         Map diskutil filesystem string to FilesystemType enum.
         Checks both FilesystemType and Content fields.
+
+        FIXED: Now properly detects Windows_NTFS from diskutil list output.
         """
         fs_upper = fs_str.upper()
         content_upper = content_str.upper()
         combined = f"{fs_upper} {content_upper}"
+
+        # NTFS variants - FIXED to catch Windows_NTFS format
+        if 'NTFS' in combined or 'WINDOWS_NTFS' in fs_upper:
+            return FilesystemType.NTFS
 
         # APFS variants
         if 'APFS' in combined:
@@ -258,10 +265,6 @@ class DiskInspector:
         # FAT32 variants
         if 'FAT32' in combined or 'MSDOS' in combined or 'FAT' in combined:
             return FilesystemType.FAT32
-
-        # NTFS variants
-        if 'NTFS' in combined:
-            return FilesystemType.NTFS
 
         # EXT variants
         if 'EXT4' in combined or 'EXT3' in combined or 'EXT2' in combined:

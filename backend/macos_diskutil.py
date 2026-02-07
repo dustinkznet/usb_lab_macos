@@ -81,6 +81,10 @@ class DiskUtilBackend:
             # Store with normalized key names
             info[key] = value
 
+        # FIXED: Get filesystem type from diskutil list for more accurate detection
+        # diskutil info sometimes returns generic names, but diskutil list shows the actual type
+        fs_type_from_list = cls._get_filesystem_from_list(disk_id)
+
         # Map to standardized field names for compatibility
         standardized = {
             'DeviceIdentifier': info.get('Device Identifier', disk_id),
@@ -89,7 +93,8 @@ class DiskUtilBackend:
             'Mounted': info.get('Mounted', 'No') == 'Yes',
             'MountPoint': info.get('Mount Point', ''),
             'TotalSize': cls._parse_size(info.get('Disk Size', info.get('Total Size', '0'))),
-            'FilesystemType': info.get('File System Personality', info.get('Type (Bundle)', 'Unknown')),
+            # FIXED: Use filesystem from list if available, otherwise fall back to info fields
+            'FilesystemType': fs_type_from_list or info.get('File System Personality', info.get('Type (Bundle)', 'Unknown')),
             'BusProtocol': info.get('Protocol', info.get('Device Location', 'Unknown')),
             'DeviceLocation': info.get('Device Location', 'Unknown'),
             'Removable': info.get('Removable Media', 'No') == 'Yes',
@@ -98,6 +103,41 @@ class DiskUtilBackend:
         }
 
         return standardized
+
+    @classmethod
+    def _get_filesystem_from_list(cls, partition_id: str) -> Optional[str]:
+        """
+        Get filesystem type from diskutil list output.
+        This is more reliable than diskutil info for some filesystems like NTFS.
+
+        Args:
+            partition_id: Partition identifier (e.g., 'disk2s1')
+
+        Returns:
+            Filesystem type string or None
+        """
+        # Extract disk number from partition (e.g., 'disk2' from 'disk2s1')
+        match = re.match(r'(disk\d+)', partition_id)
+        if not match:
+            return None
+
+        disk_id = match.group(1)
+
+        success, stdout, _ = cls.run_command(['diskutil', 'list', disk_id])
+        if not success:
+            return None
+
+        # Look for line with this partition identifier
+        # Format: "   1:               Windows_NTFS Transcend               128.0 GB   disk2s1"
+        for line in stdout.split('\n'):
+            if partition_id in line and re.search(r'\s+\d+:', line):
+                # Extract the TYPE field (second column after the number)
+                # Pattern: number: TYPE NAME SIZE IDENTIFIER
+                match = re.search(r'\s+\d+:\s+(\S+)', line)
+                if match:
+                    return match.group(1)
+
+        return None
 
     @classmethod
     def _parse_size(cls, size_str: str) -> int:
