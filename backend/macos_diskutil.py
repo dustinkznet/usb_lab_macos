@@ -42,7 +42,6 @@ class DiskUtilBackend:
             return []
 
         disks = []
-        # Look for lines like "/dev/disk2 (external, physical):"
         for line in stdout.split('\n'):
             match = re.match(r'^/dev/(disk\d+)\s+\(', line)
             if match:
@@ -67,25 +66,26 @@ class DiskUtilBackend:
 
         info = {}
 
-        # Parse each line like "   Key Name:   Value"
         for line in stdout.split('\n'):
             line = line.strip()
             if ':' not in line:
                 continue
 
-            # Split on first colon
             key, value = line.split(':', 1)
             key = key.strip()
             value = value.strip()
 
-            # Store with normalized key names
             info[key] = value
 
-        # FIXED: Get filesystem type from diskutil list for more accurate detection
-        # diskutil info sometimes returns generic names, but diskutil list shows the actual type
         fs_type_from_list = cls._get_filesystem_from_list(disk_id)
 
-        # Map to standardized field names for compatibility
+        # FIXED: Extract actual device serial number
+        serial_number = info.get('Device / Media Serial Number',
+                                info.get('Disk / Partition UUID', disk_id))
+
+        # FIXED: Prioritize File System Personality (more accurate than diskutil list)
+        fs_personality = info.get('File System Personality', info.get('Type (Bundle)', ''))
+
         standardized = {
             'DeviceIdentifier': info.get('Device Identifier', disk_id),
             'MediaName': info.get('Device / Media Name', info.get('Media Name', 'Unknown')),
@@ -93,13 +93,14 @@ class DiskUtilBackend:
             'Mounted': info.get('Mounted', 'No') == 'Yes',
             'MountPoint': info.get('Mount Point', ''),
             'TotalSize': cls._parse_size(info.get('Disk Size', info.get('Total Size', '0'))),
-            # FIXED: Use filesystem from list if available, otherwise fall back to info fields
-            'FilesystemType': fs_type_from_list or info.get('File System Personality', info.get('Type (Bundle)', 'Unknown')),
+            'FilesystemType': fs_personality or fs_type_from_list or 'Unknown',
             'BusProtocol': info.get('Protocol', info.get('Device Location', 'Unknown')),
             'DeviceLocation': info.get('Device Location', 'Unknown'),
             'Removable': info.get('Removable Media', 'No') == 'Yes',
             'Content': info.get('Content (IOContent)', info.get('Partition Type', 'Unknown')),
             'PartitionType': info.get('Partition Type', ''),
+            'SerialNumber': serial_number,
+            'VolumeUUID': info.get('Volume UUID', ''),
         }
 
         return standardized
@@ -116,7 +117,6 @@ class DiskUtilBackend:
         Returns:
             Filesystem type string or None
         """
-        # Extract disk number from partition (e.g., 'disk2' from 'disk2s1')
         match = re.match(r'(disk\d+)', partition_id)
         if not match:
             return None
@@ -127,12 +127,8 @@ class DiskUtilBackend:
         if not success:
             return None
 
-        # Look for line with this partition identifier
-        # Format: "   1:               Windows_NTFS Transcend               128.0 GB   disk2s1"
         for line in stdout.split('\n'):
             if partition_id in line and re.search(r'\s+\d+:', line):
-                # Extract the TYPE field (second column after the number)
-                # Pattern: number: TYPE NAME SIZE IDENTIFIER
                 match = re.search(r'\s+\d+:\s+(\S+)', line)
                 if match:
                     return match.group(1)
@@ -153,7 +149,6 @@ class DiskUtilBackend:
         if not size_str or size_str == '0':
             return 0
 
-        # Extract number and unit
         match = re.match(r'([\d.]+)\s*([KMGT]?B)', size_str, re.IGNORECASE)
         if not match:
             return 0
@@ -197,21 +192,11 @@ class DiskUtilBackend:
 
         partitions = []
 
-        # Parse lines like:
-        # "   0:      GUID_partition_scheme                        *15.5 GB    disk2"
-        # "   1:       EFI EFI                     209.7 MB   disk2s1"
-        # "   2: Microsoft Basic Data OFFLINECRED  14.3 GB   disk2s2"
-        # OR for whole disk:
-        # "   0:                            OFFLINECRED            *15.6 GB    disk2"
-
         for line in stdout.split('\n'):
-            # Look for partition entries (have a number, colon, and disk identifier)
             if re.search(r'\s+\d+:', line):
-                # Skip partition scheme lines (line 0 usually)
                 if 'scheme' in line.lower():
                     continue
 
-                # Extract the disk identifier from the end of the line
                 match = re.search(r'(disk\d+(?:s\d+)?)\s*$', line)
                 if match:
                     partitions.append(match.group(1))

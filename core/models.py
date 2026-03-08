@@ -25,13 +25,13 @@ class Partition:
     
     @property
     def size_human(self) -> str:
-        """Human-readable size"""
+        """Human-readable size with better precision"""
         size = self.size_bytes
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
             if size < 1024.0:
-                return f"{size:.1f} {unit}"
+                return f"{size:.2f} {unit}"
             size /= 1024.0
-        return f"{size:.1f} PB"
+        return f"{size:.2f} PB"
 
 
 @dataclass
@@ -43,26 +43,26 @@ class PhysicalDisk:
     bus_protocol: str
     device_location: str
     removable: bool  # Note: unreliable metadata
-    
+
     partitions: List[Partition] = field(default_factory=list)
     partition_scheme: Optional[str] = None
     serial_number: Optional[str] = None
     disk_type: DiskType = DiskType.UNKNOWN
-    
+
     # Classification metadata
     classification_confidence: str = "Unknown"  # Low/Medium/High
     classification_notes: List[str] = field(default_factory=list)
-    
+
     @property
     def size_human(self) -> str:
-        """Human-readable size"""
+        """Human-readable size with better precision"""
         size = self.size_bytes
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
             if size < 1024.0:
-                return f"{size:.1f} {unit}"
+                return f"{size:.2f} {unit}"
             size /= 1024.0
-        return f"{size:.1f} PB"
-    
+        return f"{size:.2f} PB"
+
     @property
     def is_external(self) -> bool:
         """

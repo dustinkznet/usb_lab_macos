@@ -27,7 +27,6 @@ class SpeedTestMenu:
 
         print_section("Read/Write Speed Testing", Color.BRIGHT_YELLOW)
 
-        # Scan for drives
         external_disks = self.inspector.enumerate_external_disks()
 
         if not external_disks:
@@ -37,7 +36,6 @@ class SpeedTestMenu:
 
         print_success(f"Found {len(external_disks)} external disk(s)\n")
 
-        # Display drives with safety assessment
         testable_disks = self._display_drive_list_with_safety(external_disks)
 
         if not testable_disks:
@@ -46,7 +44,6 @@ class SpeedTestMenu:
             input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to main menu...{Color.RESET}")
             return
 
-        # Get user choice
         print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
         print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
         choice = input(f"{Color.BRIGHT_GREEN}Select drive to test: {Color.RESET}").strip().upper()
@@ -54,7 +51,6 @@ class SpeedTestMenu:
         if choice == 'B':
             return
 
-        # Handle selection
         try:
             index = int(choice) - 1
             if 0 <= index < len(external_disks):
@@ -77,7 +73,6 @@ class SpeedTestMenu:
             status_color = Color.BRIGHT_GREEN if can_test else Color.BRIGHT_RED
             status_icon = "✓" if can_test else "✗"
 
-            # Get volume name
             volume_name = self._get_volume_name(disk)
 
             # Use volume name as primary label when available
@@ -104,7 +99,6 @@ class SpeedTestMenu:
 
     def _handle_drive_test(self, disk: PhysicalDisk):
         """Handle testing for a selected drive."""
-        # Check if this disk is testable
         can_test, reason = self.test_engine.should_test_drive(disk)
 
         if not can_test:
@@ -112,31 +106,37 @@ class SpeedTestMenu:
             input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
             return
 
-        # If drive has data, confirm with user
         if "confirmation required" in reason.lower():
             print_warning(reason)
-            confirm = input(
-                f"\n{Color.BRIGHT_YELLOW}Continue with testing? This will create test files. (yes/no): {Color.RESET}").strip().lower()
+            confirm = input(f"\n{Color.BRIGHT_YELLOW}Continue with testing? This will create test files. (yes/no): {Color.RESET}").strip().lower()
             if confirm != 'yes':
                 print(f"{Color.CYAN}Testing cancelled.{Color.RESET}")
                 input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
                 return
 
-        self._run_comprehensive_tests(disk)
+        # ADDED: Prompt for adapter info
+        print(f"\n{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
+        print(f"{Color.BRIGHT_WHITE}Adapter/Hub Information (Optional){Color.RESET}\n")
+        print(f"{Color.CYAN}If using an adapter or USB hub, note it here for better tracking.{Color.RESET}")
+        print(f"{Color.CYAN}Examples: 'Apple USB-C to USB-A', 'Anker 7-port hub', 'Direct connection'{Color.RESET}\n")
+        adapter = input(f"{Color.BRIGHT_GREEN}Adapter/connection (or press Enter to skip): {Color.RESET}").strip()
 
-    def _run_comprehensive_tests(self, disk: PhysicalDisk):
+        if adapter:
+            print(f"  {Color.BRIGHT_YELLOW}ℹ Will note: {adapter}{Color.RESET}")
+
+        self._run_comprehensive_tests(disk, adapter if adapter else None)
+
+    def _run_comprehensive_tests(self, disk: PhysicalDisk, adapter_info: str = None):
         """Run comprehensive test suite on a disk."""
         clear_screen()
         print_header()
 
-        # Register drive (pass serial so it matches the inspection record)
         drive_id = self.db.register_drive(disk, disk.serial_number)
 
         print(f"\n{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}")
         print(f"{Color.BOLD}{Color.BRIGHT_WHITE}TESTING: {disk.identifier} - {disk.name}{Color.RESET}")
         print(f"{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}")
 
-        # Find first mounted, writable partition
         testable_partition = None
         for part in disk.partitions:
             if part.is_mounted and part.mount_point:
@@ -151,11 +151,11 @@ class SpeedTestMenu:
         print(f"\n{Color.WHITE}Testing partition: {testable_partition.identifier}{Color.RESET}")
         print(f"{Color.WHITE}Filesystem: {testable_partition.filesystem.value}{Color.RESET}")
         print(f"{Color.WHITE}Mount point: {testable_partition.mount_point}{Color.RESET}")
+        if adapter_info:
+            print(f"{Color.WHITE}Adapter: {Color.BRIGHT_YELLOW}{adapter_info}{Color.RESET}")
 
-        # Run test suite
-        results = self.test_engine.run_comprehensive_test_suite(testable_partition, drive_id)
+        results = self.test_engine.run_comprehensive_test_suite(testable_partition, drive_id, adapter_info=adapter_info)
 
-        # Display summary
         self._display_test_summary(results)
 
         print(f"{Color.BRIGHT_GREEN}✓ All results logged to database{Color.RESET}")

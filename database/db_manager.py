@@ -28,22 +28,20 @@ class DatabaseManager:
             db_path: Path to database file. If None, uses default location.
         """
         if db_path is None:
-            # Default location: ~/.usb_lab/usb_lab.db
             home = Path.home()
             db_dir = home / '.usb_lab'
             db_dir.mkdir(exist_ok=True)
             db_path = db_dir / 'usb_lab.db'
-        
+
         self.db_path = Path(db_path)
         self.conn = sqlite3.connect(str(self.db_path))
-        self.conn.row_factory = sqlite3.Row  # Enable column access by name
+        self.conn.row_factory = sqlite3.Row
         self._initialize_schema()
-    
+
     def _initialize_schema(self):
         """Create database schema if it doesn't exist"""
         cursor = self.conn.cursor()
-        
-        # Drives table - comprehensive drive identification
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS drives (
                 drive_id TEXT PRIMARY KEY,
@@ -62,8 +60,7 @@ class DatabaseManager:
                 notes TEXT
             )
         ''')
-        
-        # Partitions table - track partition configurations over time
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS partitions (
                 partition_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,8 +77,7 @@ class DatabaseManager:
                 FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
             )
         ''')
-        
-        # Test runs table - all benchmark results
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS test_runs (
                 run_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,14 +99,14 @@ class DatabaseManager:
                 temperature_end_celsius REAL,
                 test_file_pattern TEXT,
                 num_files INTEGER,
+                adapter_info TEXT,
                 success BOOLEAN,
                 error_message TEXT,
                 notes TEXT,
                 FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
             )
         ''')
-        
-        # Drive metadata - user-provided or advertised specs
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS drive_metadata (
                 metadata_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,8 +123,7 @@ class DatabaseManager:
                 FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
             )
         ''')
-        
-        # Inspection history - track every time we examine a drive
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS inspection_history (
                 inspection_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,8 +140,7 @@ class DatabaseManager:
                 FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
             )
         ''')
-        
-        # Connection events - track mount/unmount/connection issues
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS connection_events (
                 event_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,71 +153,54 @@ class DatabaseManager:
                 FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
             )
         ''')
-        
-        # Create indices for common queries
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_test_runs_drive 
-            ON test_runs(drive_id, timestamp DESC)
-        ''')
-        
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_test_runs_type 
-            ON test_runs(test_type, test_subtype)
-        ''')
-        
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_partitions_drive 
-            ON partitions(drive_id, scan_timestamp DESC)
-        ''')
-        
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_inspection_drive 
-            ON inspection_history(drive_id, timestamp DESC)
-        ''')
-        
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_test_runs_drive ON test_runs(drive_id, timestamp DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_test_runs_type ON test_runs(test_type, test_subtype)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_partitions_drive ON partitions(drive_id, scan_timestamp DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_inspection_drive ON inspection_history(drive_id, timestamp DESC)')
+
         self.conn.commit()
-    
+
     def generate_drive_id(self, vendor: str, model: str, serial: str) -> str:
-        """
-        Generate unique drive ID from vendor, model, and serial.
-        
-        Args:
-            vendor: Drive vendor/manufacturer
-            model: Drive model
-            serial: Drive serial number
-        
-        Returns:
-            Unique drive ID (SHA256 hash)
-        """
-        # Create unique string from drive identifiers
+        """Generate unique drive ID from vendor, model, and serial."""
         unique_str = f"{vendor}:{model}:{serial}".lower()
         return hashlib.sha256(unique_str.encode()).hexdigest()[:16]
-    
-    def register_drive(self, disk: 'PhysicalDisk') -> str:
+
+    def register_drive(self, disk: 'PhysicalDisk', serial_number: str = None) -> str:
         """
         Register or update a drive in the database.
-        
+
         Args:
             disk: PhysicalDisk object
-        
+            serial_number: Actual device serial (from diskutil)
+
         Returns:
             drive_id
         """
-        # Extract drive identifiers (we'll need to enhance PhysicalDisk to include these)
-        vendor = disk.name.split()[0] if disk.name else "Unknown"
-        model = disk.name if disk.name else "Unknown"
-        serial = disk.identifier  # Temporary - should use actual serial
-        
+        # FIXED: Better vendor/model parsing
+        if not disk.name or disk.name == "Unknown":
+            vendor = "Unknown"
+            model = ""
+        else:
+            name_parts = disk.name.split()
+            if len(name_parts) >= 2:
+                vendor = name_parts[0]
+                model = " ".join(name_parts[1:])
+            else:
+                vendor = disk.name
+                model = ""
+
+        # Use actual serial or fall back to identifier
+        serial = serial_number if serial_number else disk.identifier
+
         drive_id = self.generate_drive_id(vendor, model, serial)
-        
+
         cursor = self.conn.cursor()
-        
-        # Check if drive exists
+
         cursor.execute('SELECT drive_id FROM drives WHERE drive_id = ?', (drive_id,))
         exists = cursor.fetchone()
-        
+
         if exists:
-            # Update last_seen
             cursor.execute('''
                 UPDATE drives 
                 SET last_seen = CURRENT_TIMESTAMP,
@@ -232,10 +209,9 @@ class DatabaseManager:
                     device_location = ?,
                     partition_scheme = ?
                 WHERE drive_id = ?
-            ''', (disk.size_bytes, disk.bus_protocol, disk.device_location, 
+            ''', (disk.size_bytes, disk.bus_protocol, disk.device_location,
                   disk.partition_scheme, drive_id))
         else:
-            # Insert new drive
             cursor.execute('''
                 INSERT INTO drives (
                     drive_id, vendor, model, serial_number, capacity_bytes,
@@ -243,28 +219,21 @@ class DatabaseManager:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (drive_id, vendor, model, serial, disk.size_bytes,
                   disk.bus_protocol, disk.device_location, disk.partition_scheme))
-        
+
         self.conn.commit()
         return drive_id
-    
+
     def log_inspection(self, drive_id: str, disk: 'PhysicalDisk'):
-        """
-        Log an inspection event.
-        
-        Args:
-            drive_id: Unique drive identifier
-            disk: PhysicalDisk object with inspection results
-        """
+        """Log an inspection event."""
         cursor = self.conn.cursor()
-        
-        # Prepare markers and notes
+
         detected_markers = []
         for part in disk.partitions:
             detected_markers.extend(part.detected_markers)
-        
+
         markers_json = json.dumps(detected_markers) if detected_markers else None
         notes_json = json.dumps(disk.classification_notes) if disk.classification_notes else None
-        
+
         cursor.execute('''
             INSERT INTO inspection_history (
                 drive_id, disk_type, classification_confidence,
@@ -281,8 +250,7 @@ class DatabaseManager:
             markers_json,
             notes_json
         ))
-        
-        # Log partitions
+
         for partition in disk.partitions:
             cursor.execute('''
                 INSERT INTO partitions (
@@ -300,20 +268,13 @@ class DatabaseManager:
                 partition.is_mounted,
                 partition.volume_name
             ))
-        
+
         self.conn.commit()
-    
+
     def log_test_run(self, drive_id: str, test_type: str, **kwargs):
-        """
-        Log a benchmark test run.
-        
-        Args:
-            drive_id: Unique drive identifier
-            test_type: Type of test (sequential_read, random_4k_write, etc.)
-            **kwargs: Additional test parameters and results
-        """
+        """Log a benchmark test run."""
         cursor = self.conn.cursor()
-        
+
         cursor.execute('''
             INSERT INTO test_runs (
                 drive_id, test_type, test_subtype, filesystem_tested,
@@ -321,8 +282,8 @@ class DatabaseManager:
                 block_size_bytes, duration_seconds, bytes_transferred,
                 speed_mbps, iops, cpu_usage_percent, temperature_start_celsius,
                 temperature_end_celsius, test_file_pattern, num_files,
-                success, error_message, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                adapter_info, success, error_message, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             drive_id,
             test_type,
@@ -341,57 +302,34 @@ class DatabaseManager:
             kwargs.get('temperature_end_celsius'),
             kwargs.get('test_file_pattern'),
             kwargs.get('num_files'),
+            kwargs.get('adapter_info'),
             kwargs.get('success', True),
             kwargs.get('error_message'),
             kwargs.get('notes')
         ))
-        
+
         self.conn.commit()
-    
+
     def get_drive_history(self, drive_id: str) -> Dict:
-        """
-        Get complete history for a drive.
-        
-        Args:
-            drive_id: Unique drive identifier
-        
-        Returns:
-            Dictionary with drive info, inspections, and test results
-        """
+        """Get complete history for a drive."""
         cursor = self.conn.cursor()
-        
-        # Get drive info
+
         cursor.execute('SELECT * FROM drives WHERE drive_id = ?', (drive_id,))
         drive = cursor.fetchone()
-        
-        # Get inspections
-        cursor.execute('''
-            SELECT * FROM inspection_history 
-            WHERE drive_id = ? 
-            ORDER BY timestamp DESC
-        ''', (drive_id,))
+
+        cursor.execute('SELECT * FROM inspection_history WHERE drive_id = ? ORDER BY timestamp DESC', (drive_id,))
         inspections = cursor.fetchall()
-        
-        # Get test runs
-        cursor.execute('''
-            SELECT * FROM test_runs 
-            WHERE drive_id = ? 
-            ORDER BY timestamp DESC
-        ''', (drive_id,))
+
+        cursor.execute('SELECT * FROM test_runs WHERE drive_id = ? ORDER BY timestamp DESC', (drive_id,))
         tests = cursor.fetchall()
-        
+
         return {
             'drive': dict(drive) if drive else None,
             'inspections': [dict(i) for i in inspections],
             'tests': [dict(t) for t in tests]
         }
-    
+
     def close(self):
         """Close database connection"""
         if self.conn:
             self.conn.close()
-
-
-# ============================================================================
-# MENU SYSTEM
-# ============================================================================
