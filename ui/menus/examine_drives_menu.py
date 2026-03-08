@@ -77,13 +77,13 @@ class ExamineDrivesMenu:
             # Get volume name from first partition
             volume_name = self._get_volume_name(disk)
 
-            # Display drive info
-            print(
-                f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{disk.identifier}{Color.RESET} - {Color.WHITE}{disk.name}{Color.RESET} {mount_status}")
-            print(f"      {disk.size_human} | {disk.bus_protocol} | {total_count} partition(s)")
+            # Use volume name as primary label when available (adapter names like
+            # "SABRENT Media" are meaningless - the volume name is what identifies the drive)
+            display_name = volume_name if volume_name else disk.name
 
-            if volume_name:
-                print(f"      {Color.BRIGHT_MAGENTA}Volume:{Color.RESET} {Color.WHITE}{volume_name}{Color.RESET}")
+            print(
+                f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{disk.identifier}{Color.RESET} - {Color.BRIGHT_WHITE}{display_name}{Color.RESET} {mount_status}")
+            print(f"      {Color.WHITE}{disk.name}{Color.RESET} | {disk.size_human} | {disk.bus_protocol} | {total_count} partition(s)")
 
             print()
 

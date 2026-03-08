@@ -80,13 +80,12 @@ class SpeedTestMenu:
             # Get volume name
             volume_name = self._get_volume_name(disk)
 
-            # Display drive info
-            print(
-                f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{disk.identifier}{Color.RESET} - {Color.WHITE}{disk.name}{Color.RESET}")
-            print(f"      Size: {disk.size_human} | Type: {disk.disk_type.value}")
+            # Use volume name as primary label when available
+            display_name = volume_name if volume_name else disk.name
 
-            if volume_name:
-                print(f"      {Color.BRIGHT_MAGENTA}Volume:{Color.RESET} {Color.WHITE}{volume_name}{Color.RESET}")
+            print(
+                f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{disk.identifier}{Color.RESET} - {Color.BRIGHT_WHITE}{display_name}{Color.RESET}")
+            print(f"      {Color.WHITE}{disk.name}{Color.RESET} | {disk.size_human} | Type: {disk.disk_type.value}")
 
             print(f"      {status_color}{status_icon} {reason}{Color.RESET}")
             print()
@@ -130,8 +129,8 @@ class SpeedTestMenu:
         clear_screen()
         print_header()
 
-        # Register drive
-        drive_id = self.db.register_drive(disk)
+        # Register drive (pass serial so it matches the inspection record)
+        drive_id = self.db.register_drive(disk, disk.serial_number)
 
         print(f"\n{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}")
         print(f"{Color.BOLD}{Color.BRIGHT_WHITE}TESTING: {disk.identifier} - {disk.name}{Color.RESET}")

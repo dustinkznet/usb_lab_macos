@@ -46,6 +46,7 @@ class PhysicalDisk:
     
     partitions: List[Partition] = field(default_factory=list)
     partition_scheme: Optional[str] = None
+    serial_number: Optional[str] = None
     disk_type: DiskType = DiskType.UNKNOWN
     
     # Classification metadata

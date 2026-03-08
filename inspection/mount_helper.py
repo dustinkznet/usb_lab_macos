@@ -45,7 +45,7 @@ class MountHelper:
         # Mount read-only
         success, stdout, stderr = DiskUtilBackend.run_command([
             'diskutil', 'mount', '-mountPoint', mount_point,
-            '-readonly', partition_id
+            'readOnly', partition_id
         ])
         
         if success:
@@ -102,5 +102,5 @@ class MountHelper:
         if not info:
             return False, None
         
-        mount_point = info.get('MountPoint')
-        return mount_point is not None, mount_point
+        mount_point = info.get('MountPoint') or None
+        return bool(mount_point), mount_point

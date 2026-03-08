@@ -59,7 +59,7 @@ class DiskInspector:
             if disk and disk.is_external:
                 # Log to database if available and settings allow
                 if self.db and (not self.settings or self.settings.get('auto_log_inspections', True)):
-                    drive_id = self.db.register_drive(disk)
+                    drive_id = self.db.register_drive(disk, disk.serial_number)
                     self.db.log_inspection(drive_id, disk)
 
                 external_disks.append(disk)
@@ -91,6 +91,16 @@ class DiskInspector:
             removable=info.get('Removable', False),
             partition_scheme=info.get('Content', 'Unknown')
         )
+
+        # Extract serial number - prefer device serial, fall back to Volume UUID
+        serial = info.get('SerialNumber')
+        if not serial or serial == disk_id:
+            partition_ids_for_serial = self.backend.list_partitions(disk_id)
+            if partition_ids_for_serial:
+                first_part_info = self.backend.get_partition_info(partition_ids_for_serial[0])
+                if first_part_info:
+                    serial = first_part_info.get('VolumeUUID') or disk_id
+        disk.serial_number = serial or disk_id
 
         # Inspect partitions
         partition_ids = self.backend.list_partitions(disk_id)
@@ -299,18 +309,17 @@ class DiskInspector:
             return
 
         # Check if any partition contains installer markers
-        installer_partitions = [p for p in disk.partitions if p.installer_type]
+        # Exclude EFI partitions - they're standard infrastructure on any bootable drive,
+        # not a signal that the disk is installer media.
+        installer_partitions = [
+            p for p in disk.partitions
+            if p.installer_type and p.installer_type != DiskType.UEFI_PARTITION
+        ]
 
         if installer_partitions:
             # Use the most specific installer type found
             installer_types = [p.installer_type for p in installer_partitions]
-
-            # Prioritize non-UEFI types (UEFI is usually just the boot partition)
-            non_uefi_types = [t for t in installer_types if t != DiskType.UEFI_PARTITION]
-            if non_uefi_types:
-                disk.disk_type = non_uefi_types[0]
-            else:
-                disk.disk_type = installer_types[0]
+            disk.disk_type = installer_types[0]
 
             disk.classification_confidence = "High"
             disk.classification_notes.append(
