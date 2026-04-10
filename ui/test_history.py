@@ -15,65 +15,67 @@ class TestHistoryViewer:
         self.db = db
 
     def show_test_history_menu(self):
-        """Main test history menu"""
-        clear_screen()
-        print_header()
+        """Main test history menu - loops until user backs out."""
+        while True:
+            clear_screen()
+            print_header()
 
-        print_section("Test History", Color.BRIGHT_MAGENTA)
+            print_section("Test History", Color.BRIGHT_MAGENTA)
 
-        # Get all drives from database
-        cursor = self.db.conn.cursor()
-        cursor.execute('''
-            SELECT drive_id, vendor, model, capacity_bytes, last_seen 
-            FROM drives 
-            ORDER BY last_seen DESC
-        ''')
-        drives = cursor.fetchall()
+            # Get all drives from database
+            cursor = self.db.conn.cursor()
+            cursor.execute('''
+                SELECT drive_id, vendor, model, capacity_bytes, last_seen
+                FROM drives
+                ORDER BY last_seen DESC
+            ''')
+            drives = cursor.fetchall()
 
-        if not drives:
-            print_warning("No drives in database yet")
-            print(f"\n{Color.CYAN}Inspect or test a drive to start logging data.{Color.RESET}")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to main menu...{Color.RESET}")
-            return
+            if not drives:
+                print_warning("No drives in database yet")
+                print(f"\n{Color.CYAN}Inspect or test a drive to start logging data.{Color.RESET}")
+                input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to main menu...{Color.RESET}")
+                return
 
-        # Display drives with test history
-        print(f"{Color.BRIGHT_WHITE}Drives with Test History:{Color.RESET}\n")
+            # Display drives with test history
+            print(f"{Color.BRIGHT_WHITE}Drives with Test History:{Color.RESET}\n")
 
-        for i, drive in enumerate(drives, 1):
-            drive_id = drive['drive_id']
+            for i, drive in enumerate(drives, 1):
+                drive_id = drive['drive_id']
 
-            # Count tests for this drive
-            cursor.execute('SELECT COUNT(*) as count FROM test_runs WHERE drive_id = ?', (drive_id,))
-            test_count = cursor.fetchone()['count']
+                cursor.execute('SELECT COUNT(*) as count FROM test_runs WHERE drive_id = ?', (drive_id,))
+                test_count = cursor.fetchone()['count']
 
-            # Count inspections
-            cursor.execute('SELECT COUNT(*) as count FROM inspection_history WHERE drive_id = ?', (drive_id,))
-            inspection_count = cursor.fetchone()['count']
+                cursor.execute('SELECT COUNT(*) as count FROM inspection_history WHERE drive_id = ?', (drive_id,))
+                inspection_count = cursor.fetchone()['count']
 
-            capacity_gb = drive['capacity_bytes'] / (1024 ** 3)
+                capacity_gb = drive['capacity_bytes'] / (1024 ** 3)
 
-            print(
-                f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{drive['vendor']} {drive['model']}{Color.RESET}")
-            print(f"      {capacity_gb:.1f} GB | Last seen: {drive['last_seen']}")
-            print(f"      {Color.CYAN}{inspection_count} inspection(s), {test_count} test(s){Color.RESET}")
-            print()
+                print(
+                    f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{drive['vendor']} {drive['model']}{Color.RESET}")
+                print(f"      {capacity_gb:.1f} GB | Last seen: {drive['last_seen']}")
+                print(f"      {Color.CYAN}{inspection_count} inspection(s), {test_count} test(s){Color.RESET}")
+                print()
 
-        print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
+            print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
 
-        print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
-        choice = input(f"{Color.BRIGHT_GREEN}Select drive to view history: {Color.RESET}").strip().upper()
+            print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
+            choice = input(f"{Color.BRIGHT_GREEN}Select drive to view history: {Color.RESET}").strip().upper()
 
-        if choice == 'B':
-            return
+            if choice == 'B':
+                return
 
-        try:
-            index = int(choice) - 1
-            if 0 <= index < len(drives):
-                drive_id = drives[index]['drive_id']
-                self.show_drive_history(drive_id)
-        except ValueError:
-            print_error("Invalid selection")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
+            try:
+                index = int(choice) - 1
+                if 0 <= index < len(drives):
+                    drive_id = drives[index]['drive_id']
+                    self.show_drive_history(drive_id)
+                else:
+                    print_error("Invalid selection")
+                    input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
+            except ValueError:
+                print_error("Invalid selection")
+                input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
 
     def show_drive_history(self, drive_id: str):
         """Display complete history for a specific drive"""

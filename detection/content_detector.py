@@ -85,20 +85,6 @@ class ContentDetector:
 
         detected_markers = []
 
-        # Check for UEFI partition FIRST (since it's very specific)
-        # UEFI partitions have an EFI directory at root
-        efi_path = os.path.join(mount_point, 'EFI')
-        if os.path.exists(efi_path) and os.path.isdir(efi_path):
-            try:
-                efi_subdirs = os.listdir(efi_path)
-                if efi_subdirs:
-                    # List first few subdirectories as markers
-                    for subdir in efi_subdirs[:3]:
-                        detected_markers.append(f"EFI/{subdir}")
-                    return DiskType.UEFI_PARTITION, detected_markers
-            except PermissionError:
-                pass
-
         # Check for macOS legacy installer
         for marker in MACOS_LEGACY_MARKERS:
             marker_path = os.path.join(mount_point, marker)
@@ -143,7 +129,21 @@ class ContentDetector:
         if detected_markers:
             return DiskType.WINDOWS_INSTALLER, detected_markers
 
-        # FIXED: Check if volume appears empty but has hidden files
+        # Check for UEFI partition LAST - many installer media (Windows, Linux)
+        # also contain EFI dirs, so we only fall back to UEFI_PARTITION if no
+        # OS-specific installer markers were found.
+        efi_path = os.path.join(mount_point, 'EFI')
+        if os.path.exists(efi_path) and os.path.isdir(efi_path):
+            try:
+                efi_subdirs = os.listdir(efi_path)
+                if efi_subdirs:
+                    for subdir in efi_subdirs[:3]:
+                        detected_markers.append(f"EFI/{subdir}")
+                    return DiskType.UEFI_PARTITION, detected_markers
+            except PermissionError:
+                pass
+
+        # Check if volume appears empty but has hidden files
         # Filter out macOS system directories before determining if it's truly empty
         try:
             all_files = os.listdir(mount_point)

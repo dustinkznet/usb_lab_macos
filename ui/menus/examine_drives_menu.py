@@ -19,44 +19,47 @@ class ExamineDrivesMenu:
         self.settings = settings
 
     def show(self):
-        """Display examine drives menu and handle user interaction."""
-        clear_screen()
-        print_header()
+        """Display examine drives menu and handle user interaction. Loops until user backs out."""
+        while True:
+            clear_screen()
+            print_header()
 
-        print_section("Scanning for External USB Drives", Color.BRIGHT_CYAN)
+            print_section("Scanning for External USB Drives", Color.BRIGHT_CYAN)
 
-        # Scan for drives
-        external_disks = self.inspector.enumerate_external_disks()
+            # Scan for drives
+            external_disks = self.inspector.enumerate_external_disks()
 
-        if not external_disks:
-            print_warning("No external USB drives detected")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to main menu...{Color.RESET}")
-            return
+            if not external_disks:
+                print_warning("No external USB drives detected")
+                input(f"\n{Color.BRIGHT_WHITE}Press Enter to return to main menu...{Color.RESET}")
+                return
 
-        print_success(f"Found {len(external_disks)} external disk(s)\n")
+            print_success(f"Found {len(external_disks)} external disk(s)\n")
 
-        # Display drive list
-        self._display_drive_list(external_disks)
+            # Display drive list
+            self._display_drive_list(external_disks)
 
-        # Get user choice
-        print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
-        print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
-        choice = input(f"{Color.BRIGHT_GREEN}Select drive to examine: {Color.RESET}").strip().upper()
+            # Get user choice
+            print(f"  {Color.BRIGHT_YELLOW}[R]{Color.RESET} Rescan drives")
+            print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
+            print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
+            choice = input(f"{Color.BRIGHT_GREEN}Select drive to examine: {Color.RESET}").strip().upper()
 
-        if choice == 'B':
-            return
+            if choice == 'B':
+                return
+            if choice == 'R':
+                continue
 
-        # Handle selection
-        try:
-            index = int(choice) - 1
-            if 0 <= index < len(external_disks):
-                self._display_drive_inspection(external_disks[index])
-            else:
+            try:
+                index = int(choice) - 1
+                if 0 <= index < len(external_disks):
+                    self._display_drive_inspection(external_disks[index])
+                else:
+                    print_error("Invalid selection")
+                    input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
+            except ValueError:
                 print_error("Invalid selection")
                 input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
-        except ValueError:
-            print_error("Invalid selection")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
 
     def _display_drive_list(self, disks):
         """Display formatted list of drives."""

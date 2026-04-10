@@ -16,35 +16,15 @@ class SettingsManager:
     DEFAULT_SETTINGS = {
         # Inspection Settings
         "default_inspection_mode": "smart_auto",  # smart_auto, metadata_only, mounted_readonly
-        "auto_mount_for_inspection": False,  # Ask before mounting unmounted drives
-        "show_hidden_files": False,  # Show hidden files when detecting installers
+        "auto_log_inspections": True,  # Automatically log all inspections to the database
 
         # Testing Settings
-        "default_test_file_size_mb": 100,  # Size for sequential tests
-        "default_random_operations": 1000,  # Number of ops for random tests
-        "skip_installer_check": False,  # Always check if drive is installer before testing
-        "confirm_before_testing": True,  # Ask user confirmation before speed tests
-
-        # Display Settings
-        "use_colors": True,  # Enable/disable ANSI colors
-        "show_debug_info": False,  # Show debug messages
-        "verbose_output": False,  # Show detailed output during operations
-        "show_mount_status_icons": True,  # Show ● ◐ ○ icons
-
-        # Database Settings
-        "auto_log_inspections": True,  # Automatically log all inspections
-        "auto_log_tests": True,  # Automatically log all test results
-        "db_location": "~/.usb_lab/usb_lab.db",  # Database file location
-
-        # Safety Settings
-        "block_installer_testing": True,  # Prevent testing installer media
-        "readonly_inspection_only": True,  # Never mount read-write for inspection
-        "require_confirmation_data_drives": True,  # Confirm before testing drives with data
-
-        # Advanced Settings
-        "cleanup_test_files": True,  # Delete test files after completion
-        "max_test_file_size_mb": 1000,  # Maximum allowed test file size
-        "enable_thermal_monitoring": False,  # Monitor temperature during tests (if available)
+        "default_test_file_size_mb": 100,  # Size for sequential read/write tests
+        "max_test_file_size_mb": 1000,  # Hard cap on test file size
+        "confirm_before_testing": True,  # Ask user confirmation before every speed test
+        "require_confirmation_data_drives": True,  # Always confirm before testing a drive with data
+        "auto_log_tests": True,  # Persist test results to the database
+        "cleanup_test_files": True,  # Delete the test directory after each run
     }
 
     def __init__(self, settings_path: str = None):

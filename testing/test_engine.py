@@ -1,11 +1,11 @@
 """
 Drive testing engine for health checks and performance benchmarks.
-REWRITTEN to use dd and Unix tools for accurate, reliable results.
+Uses dd and Unix tools for accurate, reliable results.
 
-Test Order (CORRECT):
+Test Order:
 1. Health Check - verify drive is functional
-2. Sequential Write - create test file with dd
-3. Sequential Read - read back test file (with cache clearing)
+2. Sequential Write - create test file with dd (oflag=sync)
+3. Sequential Read - read back test file (iflag=direct bypasses cache)
 4. Cleanup - remove test files
 """
 
@@ -32,9 +32,22 @@ class DriveTestEngine:
     Python just orchestrates and parses results.
     """
 
-    def __init__(self, db: DatabaseManager):
+    def __init__(self, db: DatabaseManager, settings=None):
         self.db = db
+        self.settings = settings
         self.test_dir_name = TEST_DIR_NAME
+
+    def _should_log(self) -> bool:
+        """Whether test results should be persisted to the database."""
+        if self.settings is None:
+            return True
+        return bool(self.settings.get('auto_log_tests', True))
+
+    def _should_cleanup(self) -> bool:
+        """Whether test files should be removed after testing."""
+        if self.settings is None:
+            return True
+        return bool(self.settings.get('cleanup_test_files', True))
 
     def should_test_drive(self, disk: PhysicalDisk) -> tuple[bool, str]:
         """
@@ -177,16 +190,17 @@ class DriveTestEngine:
             duration = (datetime.now() - start_time).total_seconds()
 
             # Log to database
-            self.db.log_test_run(
-                drive_id=drive_id,
-                test_type=TestType.HEALTH_CHECK.value,
-                filesystem_tested=partition.filesystem.value,
-                mount_point=partition.mount_point,
-                partition_identifier=partition.identifier,
-                duration_seconds=duration,
-                success=True,
-                notes="; ".join(notes)
-            )
+            if self._should_log():
+                self.db.log_test_run(
+                    drive_id=drive_id,
+                    test_type=TestType.HEALTH_CHECK.value,
+                    filesystem_tested=partition.filesystem.value,
+                    mount_point=partition.mount_point,
+                    partition_identifier=partition.identifier,
+                    duration_seconds=duration,
+                    success=True,
+                    notes="; ".join(notes)
+                )
 
             return TestResult(
                 test_type=TestType.HEALTH_CHECK,
@@ -204,34 +218,26 @@ class DriveTestEngine:
                 error_message=str(e)
             )
 
-    def _parse_dd_output(self, stderr: str) -> Tuple[Optional[float], Optional[float]]:
+    def _parse_dd_output(self, stderr: str) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """
-        Parse dd output to extract bytes transferred and speed.
+        Parse dd output to extract bytes transferred, speed, and duration.
 
         dd outputs to stderr in format like:
         "104857600 bytes transferred in 5.242653 secs (20000000 bytes/sec)"
 
-        Args:
-            stderr: dd stderr output
-
         Returns:
-            (bytes_transferred, speed_mbps) or (None, None) if parse fails
+            (bytes_transferred, speed_mbps, duration_seconds) or (None, None, None)
         """
-        # Look for the summary line with transfer stats
-        # Format: "X bytes transferred in Y secs (Z bytes/sec)"
         match = re.search(r'(\d+) bytes transferred in ([\d.]+) secs \(([\d.]+) bytes/sec\)', stderr)
 
         if match:
             bytes_transferred = int(match.group(1))
             duration = float(match.group(2))
             bytes_per_sec = float(match.group(3))
-
-            # Convert to MB/s
             speed_mbps = bytes_per_sec / (1024 * 1024)
+            return bytes_transferred, speed_mbps, duration
 
-            return bytes_transferred, speed_mbps
-
-        return None, None
+        return None, None, None
 
     def run_sequential_write_test(self, partition: Partition, drive_id: str,
                                   file_size_mb: int = 100) -> TestResult:
@@ -292,7 +298,7 @@ class DriveTestEngine:
                 raise Exception(f"dd failed: {result.stderr}")
 
             # Parse dd output
-            bytes_transferred, speed_mbps = self._parse_dd_output(result.stderr)
+            bytes_transferred, speed_mbps, duration = self._parse_dd_output(result.stderr)
 
             if speed_mbps is None:
                 raise Exception("Failed to parse dd output")
@@ -300,24 +306,25 @@ class DriveTestEngine:
             print(f"  {Color.BRIGHT_GREEN}✓ Write speed: {speed_mbps:.2f} MB/s{Color.RESET}")
 
             # Log to database
-            self.db.log_test_run(
-                drive_id=drive_id,
-                test_type=TestType.SEQUENTIAL_WRITE.value,
-                filesystem_tested=partition.filesystem.value,
-                mount_point=partition.mount_point,
-                partition_identifier=partition.identifier,
-                file_size_bytes=bytes_transferred,
-                block_size_bytes=1024 * 1024,
-                duration_seconds=0,  # dd includes this in its output
-                bytes_transferred=bytes_transferred,
-                speed_mbps=speed_mbps,
-                success=True
-            )
+            if self._should_log():
+                self.db.log_test_run(
+                    drive_id=drive_id,
+                    test_type=TestType.SEQUENTIAL_WRITE.value,
+                    filesystem_tested=partition.filesystem.value,
+                    mount_point=partition.mount_point,
+                    partition_identifier=partition.identifier,
+                    file_size_bytes=bytes_transferred,
+                    block_size_bytes=1024 * 1024,
+                    duration_seconds=duration,
+                    bytes_transferred=bytes_transferred,
+                    speed_mbps=speed_mbps,
+                    success=True
+                )
 
             return TestResult(
                 test_type=TestType.SEQUENTIAL_WRITE,
                 success=True,
-                duration_seconds=0,
+                duration_seconds=duration,
                 speed_mbps=speed_mbps,
                 bytes_transferred=bytes_transferred
             )
@@ -377,41 +384,18 @@ class DriveTestEngine:
             )
 
         print(f"\n{Color.BRIGHT_YELLOW}Testing sequential read ({file_size_mb}MB)...{Color.RESET}")
-
-        # CRITICAL: Clear disk cache for accurate read test
-        print(f"\n{Color.BRIGHT_CYAN}═══════════════════════════════════════════════════════════{Color.RESET}")
-        print(f"{Color.BRIGHT_WHITE}Cache Clearing Required for Accurate Results{Color.RESET}")
-        print(f"{Color.BRIGHT_CYAN}═══════════════════════════════════════════════════════════{Color.RESET}")
-        print(f"\n{Color.CYAN}Without clearing the disk cache, the read test will measure{Color.RESET}")
-        print(f"{Color.CYAN}RAM speed (~7000 MB/s) instead of actual USB drive speed.{Color.RESET}")
-        print(f"\n{Color.YELLOW}You will be prompted for your password to run: sudo purge{Color.RESET}")
-        print(f"{Color.BRIGHT_CYAN}═══════════════════════════════════════════════════════════{Color.RESET}\n")
-
-        cache_cleared = self._clear_disk_cache()
-
-        if not cache_cleared:
-            print(f"\n{Color.BRIGHT_RED}✗ Cache clearing failed or was cancelled{Color.RESET}")
-            print(f"{Color.YELLOW}Read test results will be INACCURATE (measuring RAM cache).{Color.RESET}")
-
-            response = input(f"\n{Color.BRIGHT_GREEN}Continue with inaccurate read test? (y/n): {Color.RESET}").strip().lower()
-            if response != 'y':
-                return TestResult(
-                    test_type=TestType.SEQUENTIAL_READ,
-                    success=False,
-                    duration_seconds=0,
-                    error_message="Cache clearing failed - test cancelled by user"
-                )
-        else:
-            print(f"{Color.BRIGHT_GREEN}✓ Disk cache cleared successfully{Color.RESET}")
+        print(f"  {Color.CYAN}Using F_NOCACHE to bypass disk cache{Color.RESET}")
 
         try:
-            # Run dd to read test file
+            # Run dd with iflag=direct to bypass disk cache (F_NOCACHE)
+            # This reads directly from disk, no sudo or cache purge needed
             result = subprocess.run(
                 [
                     'dd',
                     f'if={test_file}',
                     'of=/dev/null',
-                    'bs=1m'
+                    'bs=1m',
+                    'iflag=direct'  # F_NOCACHE: bypass filesystem read cache
                 ],
                 capture_output=True,
                 text=True,
@@ -422,44 +406,40 @@ class DriveTestEngine:
                 raise Exception(f"dd failed: {result.stderr}")
 
             # Parse dd output
-            bytes_transferred, speed_mbps = self._parse_dd_output(result.stderr)
+            bytes_transferred, speed_mbps, duration = self._parse_dd_output(result.stderr)
 
             if speed_mbps is None:
                 raise Exception("Failed to parse dd output")
 
-            # Flag results based on cache clearing status
+            # Flag suspicious results
             note = None
-            if not cache_cleared:
-                note = "⚠ INACCURATE: Cache not cleared - measured RAM speed, not disk speed"
-                print(f"  {Color.BRIGHT_RED}✗ Read speed: {speed_mbps:.2f} MB/s (RAM CACHE - NOT ACCURATE){Color.RESET}")
-            elif speed_mbps > 500:
-                # Even with cache cleared, if speed > 500 MB/s something is wrong
+            if speed_mbps > 500:
                 note = "⚠ WARNING: Speed > 500 MB/s is suspicious for USB drives"
                 print(f"  {Color.BRIGHT_YELLOW}⚠ Read speed: {speed_mbps:.2f} MB/s (unusually high){Color.RESET}")
             else:
-                # Normal, accurate result
                 print(f"  {Color.BRIGHT_GREEN}✓ Read speed: {speed_mbps:.2f} MB/s{Color.RESET}")
 
             # Log to database
-            self.db.log_test_run(
-                drive_id=drive_id,
-                test_type=TestType.SEQUENTIAL_READ.value,
-                filesystem_tested=partition.filesystem.value,
-                mount_point=partition.mount_point,
-                partition_identifier=partition.identifier,
-                file_size_bytes=bytes_transferred,
-                block_size_bytes=1024 * 1024,
-                duration_seconds=0,
-                bytes_transferred=bytes_transferred,
-                speed_mbps=speed_mbps,
-                success=True,
-                notes=note
-            )
+            if self._should_log():
+                self.db.log_test_run(
+                    drive_id=drive_id,
+                    test_type=TestType.SEQUENTIAL_READ.value,
+                    filesystem_tested=partition.filesystem.value,
+                    mount_point=partition.mount_point,
+                    partition_identifier=partition.identifier,
+                    file_size_bytes=bytes_transferred,
+                    block_size_bytes=1024 * 1024,
+                    duration_seconds=duration,
+                    bytes_transferred=bytes_transferred,
+                    speed_mbps=speed_mbps,
+                    success=True,
+                    notes=note
+                )
 
             return TestResult(
                 test_type=TestType.SEQUENTIAL_READ,
                 success=True,
-                duration_seconds=0,
+                duration_seconds=duration,
                 speed_mbps=speed_mbps,
                 bytes_transferred=bytes_transferred,
                 notes=[note] if note else []
@@ -480,40 +460,16 @@ class DriveTestEngine:
                 error_message=str(e)
             )
 
-    def _clear_disk_cache(self) -> bool:
-        """
-        Clear disk cache using 'purge' command (macOS).
-        Will prompt for sudo password if needed.
-
-        Returns:
-            True if cache was cleared, False if user cancelled or error
-        """
-        try:
-            # Run purge WITH password prompt (no -n flag)
-            # This allows sudo to ask for password interactively
-            result = subprocess.run(
-                ['sudo', 'purge'],
-                timeout=60  # Give user time to type password
-            )
-            return result.returncode == 0
-        except subprocess.TimeoutExpired:
-            print(f"\n{Color.BRIGHT_RED}✗ Timeout waiting for password{Color.RESET}")
-            return False
-        except KeyboardInterrupt:
-            print(f"\n{Color.BRIGHT_YELLOW}✗ Cancelled by user{Color.RESET}")
-            return False
-        except Exception as e:
-            print(f"\n{Color.BRIGHT_RED}✗ Error: {e}{Color.RESET}")
-            return False
-
     def cleanup_test_files(self, partition: Partition):
         """
         Clean up test files and directory.
-
-        Args:
-            partition: Partition to clean up
+        Honors the cleanup_test_files setting.
         """
         if not partition.is_mounted:
+            return
+
+        if not self._should_cleanup():
+            print(f"\n{Color.YELLOW}⚠ Skipping cleanup (cleanup_test_files disabled){Color.RESET}")
             return
 
         test_dir = os.path.join(partition.mount_point, self.test_dir_name)

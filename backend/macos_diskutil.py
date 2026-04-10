@@ -142,18 +142,22 @@ class DiskUtilBackend:
     @classmethod
     def _parse_size(cls, size_str: str) -> int:
         """
-        Parse size string like '14.5 GB' to bytes.
+        Parse a diskutil size string to bytes.
 
-        Args:
-            size_str: Size string from diskutil
-
-        Returns:
-            Size in bytes
+        diskutil output looks like: "16.0 GB (16005464064 Bytes)"
+        Prefer the exact byte count in parentheses when present, since the
+        rounded human-readable value loses precision and uses decimal units
+        (16.0 GB ≠ 16 * 1024^3 bytes).
         """
         if not size_str or size_str == '0':
             return 0
 
-        # Extract number and unit
+        # Prefer the exact "(N Bytes)" form
+        bytes_match = re.search(r'\((\d+)\s*Bytes?\)', size_str, re.IGNORECASE)
+        if bytes_match:
+            return int(bytes_match.group(1))
+
+        # Fall back to the human-readable value (decimal units, as diskutil reports)
         match = re.match(r'([\d.]+)\s*([KMGT]?B)', size_str, re.IGNORECASE)
         if not match:
             return 0
@@ -163,10 +167,10 @@ class DiskUtilBackend:
 
         multipliers = {
             'B': 1,
-            'KB': 1024,
-            'MB': 1024 ** 2,
-            'GB': 1024 ** 3,
-            'TB': 1024 ** 4,
+            'KB': 1000,
+            'MB': 1000 ** 2,
+            'GB': 1000 ** 3,
+            'TB': 1000 ** 4,
         }
 
         return int(value * multipliers.get(unit, 1))

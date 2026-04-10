@@ -23,43 +23,22 @@ class SettingsMenu:
 
             print_section("Settings & Configuration", Color.BRIGHT_CYAN)
 
-            # Display current settings organized by category
             print(f"{Color.BRIGHT_WHITE}Current Settings:{Color.RESET}\n")
 
-            # Inspection Settings
-            print(f"{Color.BRIGHT_YELLOW}Inspection Settings:{Color.RESET}")
-            print(
-                f"  1. Default Inspection Mode: {Color.CYAN}{self.settings.get('default_inspection_mode')}{Color.RESET}")
-            print(
-                f"  2. Auto-mount for Inspection: {Color.CYAN}{self.settings.get('auto_mount_for_inspection')}{Color.RESET}")
-            print(f"  3. Show Hidden Files: {Color.CYAN}{self.settings.get('show_hidden_files')}{Color.RESET}")
+            # Inspection
+            print(f"{Color.BRIGHT_YELLOW}Inspection:{Color.RESET}")
+            print(f"  1. Default Inspection Mode: {Color.CYAN}{self.settings.get('default_inspection_mode')}{Color.RESET}")
+            print(f"  2. Auto-Log Inspections: {Color.CYAN}{self.settings.get('auto_log_inspections')}{Color.RESET}")
             print()
 
-            # Testing Settings
-            print(f"{Color.BRIGHT_YELLOW}Testing Settings:{Color.RESET}")
-            print(
-                f"  4. Default Test File Size: {Color.CYAN}{self.settings.get('default_test_file_size_mb')} MB{Color.RESET}")
-            print(
-                f"  5. Random Operations Count: {Color.CYAN}{self.settings.get('default_random_operations')}{Color.RESET}")
-            print(
-                f"  6. Confirm Before Testing: {Color.CYAN}{self.settings.get('confirm_before_testing')}{Color.RESET}")
-            print()
-
-            # Display Settings
-            print(f"{Color.BRIGHT_YELLOW}Display Settings:{Color.RESET}")
-            print(f"  7. Use Colors: {Color.CYAN}{self.settings.get('use_colors')}{Color.RESET}")
-            print(f"  8. Show Debug Info: {Color.CYAN}{self.settings.get('show_debug_info')}{Color.RESET}")
-            print(f"  9. Verbose Output: {Color.CYAN}{self.settings.get('verbose_output')}{Color.RESET}")
-            print()
-
-            # Safety Settings
-            print(f"{Color.BRIGHT_YELLOW}Safety Settings:{Color.RESET}")
-            print(
-                f"  10. Block Installer Testing: {Color.CYAN}{self.settings.get('block_installer_testing')}{Color.RESET}")
-            print(
-                f"  11. Read-Only Inspection: {Color.CYAN}{self.settings.get('readonly_inspection_only')}{Color.RESET}")
-            print(
-                f"  12. Confirm Data Drive Tests: {Color.CYAN}{self.settings.get('require_confirmation_data_drives')}{Color.RESET}")
+            # Testing
+            print(f"{Color.BRIGHT_YELLOW}Testing:{Color.RESET}")
+            print(f"  3. Default Test File Size: {Color.CYAN}{self.settings.get('default_test_file_size_mb')} MB{Color.RESET}")
+            print(f"  4. Max Test File Size: {Color.CYAN}{self.settings.get('max_test_file_size_mb')} MB{Color.RESET}")
+            print(f"  5. Confirm Before Testing: {Color.CYAN}{self.settings.get('confirm_before_testing')}{Color.RESET}")
+            print(f"  6. Confirm Tests on Data Drives: {Color.CYAN}{self.settings.get('require_confirmation_data_drives')}{Color.RESET}")
+            print(f"  7. Auto-Log Tests: {Color.CYAN}{self.settings.get('auto_log_tests')}{Color.RESET}")
+            print(f"  8. Cleanup Test Files: {Color.CYAN}{self.settings.get('cleanup_test_files')}{Color.RESET}")
             print()
 
             # Actions
@@ -110,59 +89,39 @@ class SettingsMenu:
                 print_error("Invalid choice")
 
         elif option == 2:
-            self._toggle_boolean('auto_mount_for_inspection',
-                                 "Auto-mount for Inspection",
-                                 "Automatically mount unmounted drives for full inspection")
+            self._toggle_boolean('auto_log_inspections',
+                                 "Auto-Log Inspections",
+                                 "Automatically save every inspection to the database")
 
         elif option == 3:
-            self._toggle_boolean('show_hidden_files',
-                                 "Show Hidden Files",
-                                 "Include hidden files in installer detection")
-
-        elif option == 4:
             self._modify_numeric('default_test_file_size_mb',
                                  "Default Test File Size (MB)",
-                                 10, 1000, " MB")
+                                 10, self.settings.get('max_test_file_size_mb', 1000), " MB")
+
+        elif option == 4:
+            self._modify_numeric('max_test_file_size_mb',
+                                 "Max Test File Size (MB)",
+                                 100, 10000, " MB")
 
         elif option == 5:
-            self._modify_numeric('default_random_operations',
-                                 "Random Operations Count",
-                                 100, 10000, " operations")
-
-        elif option == 6:
             self._toggle_boolean('confirm_before_testing',
                                  "Confirm Before Testing",
                                  "Require confirmation before running speed tests")
 
+        elif option == 6:
+            self._toggle_boolean('require_confirmation_data_drives',
+                                 "Confirm Tests on Data Drives",
+                                 "Require confirmation before testing drives with existing data")
+
         elif option == 7:
-            self._toggle_boolean('use_colors',
-                                 "Use Colors",
-                                 "Enable ANSI color output in terminal")
+            self._toggle_boolean('auto_log_tests',
+                                 "Auto-Log Tests",
+                                 "Automatically save speed test results to the database")
 
         elif option == 8:
-            self._toggle_boolean('show_debug_info',
-                                 "Show Debug Info",
-                                 "Display debug messages during operations")
-
-        elif option == 9:
-            self._toggle_boolean('verbose_output',
-                                 "Verbose Output",
-                                 "Show detailed output during all operations")
-
-        elif option == 10:
-            self._toggle_boolean('block_installer_testing',
-                                 "Block Installer Testing",
-                                 "Prevent speed tests on installer media (RECOMMENDED)")
-
-        elif option == 11:
-            self._toggle_boolean('readonly_inspection_only',
-                                 "Read-Only Inspection",
-                                 "Never mount drives read-write for inspection (RECOMMENDED)")
-
-        elif option == 12:
-            self._toggle_boolean('require_confirmation_data_drives',
-                                 "Confirm Data Drive Tests",
-                                 "Require confirmation before testing drives with existing data")
+            self._toggle_boolean('cleanup_test_files',
+                                 "Cleanup Test Files",
+                                 "Delete the test directory from the drive after each run")
 
         else:
             print_error("Invalid option")

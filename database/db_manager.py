@@ -110,24 +110,6 @@ class DatabaseManager:
             )
         ''')
         
-        # Drive metadata - user-provided or advertised specs
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS drive_metadata (
-                metadata_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                drive_id TEXT,
-                advertised_read_speed_mbps REAL,
-                advertised_write_speed_mbps REAL,
-                warranty_years INTEGER,
-                purchase_date DATE,
-                purchase_price_usd REAL,
-                purchase_location TEXT,
-                drive_color TEXT,
-                physical_condition TEXT,
-                expected_use_case TEXT,
-                FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
-            )
-        ''')
-        
         # Inspection history - track every time we examine a drive
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS inspection_history (
@@ -142,20 +124,6 @@ class DatabaseManager:
                 installer_type TEXT,
                 detected_markers TEXT,
                 classification_notes TEXT,
-                FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
-            )
-        ''')
-        
-        # Connection events - track mount/unmount/connection issues
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS connection_events (
-                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                drive_id TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                event_type TEXT,
-                success BOOLEAN,
-                error_code TEXT,
-                error_message TEXT,
                 FOREIGN KEY (drive_id) REFERENCES drives(drive_id)
             )
         ''')
@@ -199,21 +167,22 @@ class DatabaseManager:
         unique_str = f"{vendor}:{model}:{serial}".lower()
         return hashlib.sha256(unique_str.encode()).hexdigest()[:16]
     
-    def register_drive(self, disk: 'PhysicalDisk') -> str:
+    def register_drive(self, disk: 'PhysicalDisk', serial_number: Optional[str] = None) -> str:
         """
         Register or update a drive in the database.
-        
+
         Args:
             disk: PhysicalDisk object
-        
+            serial_number: Drive serial number (preferred over disk.identifier)
+
         Returns:
             drive_id
         """
-        # Extract drive identifiers (we'll need to enhance PhysicalDisk to include these)
         vendor = disk.name.split()[0] if disk.name else "Unknown"
         model = disk.name if disk.name else "Unknown"
-        serial = disk.identifier  # Temporary - should use actual serial
-        
+        # Prefer explicit serial, then disk.serial_number, then fall back to identifier
+        serial = serial_number or getattr(disk, 'serial_number', None) or disk.identifier
+
         drive_id = self.generate_drive_id(vendor, model, serial)
         
         cursor = self.conn.cursor()
@@ -391,7 +360,44 @@ class DatabaseManager:
         if self.conn:
             self.conn.close()
 
+    def clear_all_data(self):
+        """
+        Delete all data from all tables. Schema remains intact.
+        Use with caution - this is irreversible.
+        """
+        cursor = self.conn.cursor()
+        # Drop legacy tables if they exist from older schema versions
+        for legacy in ('connection_events', 'drive_metadata'):
+            cursor.execute(f'DROP TABLE IF EXISTS {legacy}')
+        # Order matters due to foreign keys (children first)
+        for table in [
+            'inspection_history',
+            'partitions',
+            'test_runs',
+            'drives',
+        ]:
+            cursor.execute(f'DELETE FROM {table}')
+        self.conn.commit()
+        # Reclaim space
+        cursor.execute('VACUUM')
 
-# ============================================================================
-# MENU SYSTEM
-# ============================================================================
+    def export_to_json(self, export_path: str):
+        """
+        Export the entire database to a JSON file.
+
+        Args:
+            export_path: Filesystem path to write JSON to
+        """
+        cursor = self.conn.cursor()
+        export = {}
+        for table in [
+            'drives',
+            'partitions',
+            'test_runs',
+            'inspection_history',
+        ]:
+            cursor.execute(f'SELECT * FROM {table}')
+            export[table] = [dict(row) for row in cursor.fetchall()]
+
+        with open(export_path, 'w') as f:
+            json.dump(export, f, indent=2, default=str)

@@ -3,9 +3,11 @@ Drive database viewer for USB LAB.
 Displays registered drives and database statistics.
 """
 
+from pathlib import Path
+
 from database.db_manager import DatabaseManager
 from ui.colors import Color
-from ui.display import clear_screen, print_header, print_section, print_warning, print_error
+from ui.display import clear_screen, print_header, print_section, print_warning, print_error, print_success
 
 
 class DriveDatabase:
@@ -15,75 +17,80 @@ class DriveDatabase:
         self.db = db
 
     def show_database_menu(self):
-        """Main database menu"""
-        clear_screen()
-        print_header()
+        """Main database menu - loops until user backs out."""
+        while True:
+            clear_screen()
+            print_header()
 
-        print_section("Drive Database", Color.BRIGHT_BLUE)
+            print_section("Drive Database", Color.BRIGHT_BLUE)
 
-        # Get database statistics
-        cursor = self.db.conn.cursor()
+            # Get database statistics
+            cursor = self.db.conn.cursor()
 
-        cursor.execute('SELECT COUNT(*) as count FROM drives')
-        drive_count = cursor.fetchone()['count']
+            cursor.execute('SELECT COUNT(*) as count FROM drives')
+            drive_count = cursor.fetchone()['count']
 
-        cursor.execute('SELECT COUNT(*) as count FROM test_runs')
-        test_count = cursor.fetchone()['count']
+            cursor.execute('SELECT COUNT(*) as count FROM test_runs')
+            test_count = cursor.fetchone()['count']
 
-        cursor.execute('SELECT COUNT(*) as count FROM inspection_history')
-        inspection_count = cursor.fetchone()['count']
+            cursor.execute('SELECT COUNT(*) as count FROM inspection_history')
+            inspection_count = cursor.fetchone()['count']
 
-        cursor.execute('SELECT COUNT(DISTINCT drive_id) as count FROM test_runs')
-        tested_drive_count = cursor.fetchone()['count']
+            cursor.execute('SELECT COUNT(DISTINCT drive_id) as count FROM test_runs')
+            tested_drive_count = cursor.fetchone()['count']
 
-        # Display statistics
-        print(f"{Color.BRIGHT_WHITE}Database Statistics:{Color.RESET}\n")
-        print(f"  Total Drives Registered: {Color.BRIGHT_CYAN}{drive_count}{Color.RESET}")
-        print(f"  Total Inspections: {Color.BRIGHT_CYAN}{inspection_count}{Color.RESET}")
-        print(f"  Total Test Runs: {Color.BRIGHT_CYAN}{test_count}{Color.RESET}")
-        print(f"  Drives with Test Data: {Color.BRIGHT_CYAN}{tested_drive_count}{Color.RESET}")
-        print()
+            # Display statistics
+            print(f"{Color.BRIGHT_WHITE}Database Statistics:{Color.RESET}\n")
+            print(f"  Total Drives Registered: {Color.BRIGHT_CYAN}{drive_count}{Color.RESET}")
+            print(f"  Total Inspections: {Color.BRIGHT_CYAN}{inspection_count}{Color.RESET}")
+            print(f"  Total Test Runs: {Color.BRIGHT_CYAN}{test_count}{Color.RESET}")
+            print(f"  Drives with Test Data: {Color.BRIGHT_CYAN}{tested_drive_count}{Color.RESET}")
+            print()
 
-        print(f"  Database Location: {Color.CYAN}{self.db.db_path}{Color.RESET}")
-        print()
+            print(f"  Database Location: {Color.CYAN}{self.db.db_path}{Color.RESET}")
+            print()
 
-        # Show recent activity
-        print(f"{Color.BRIGHT_WHITE}Recent Activity:{Color.RESET}\n")
+            # Show recent activity
+            print(f"{Color.BRIGHT_WHITE}Recent Activity:{Color.RESET}\n")
 
-        cursor.execute('''
-            SELECT d.vendor, d.model, d.last_seen, 
-                   (SELECT COUNT(*) FROM test_runs WHERE drive_id = d.drive_id) as test_count
-            FROM drives d
-            ORDER BY d.last_seen DESC
-            LIMIT 5
-        ''')
-        recent_drives = cursor.fetchall()
+            cursor.execute('''
+                SELECT d.vendor, d.model, d.last_seen,
+                       (SELECT COUNT(*) FROM test_runs WHERE drive_id = d.drive_id) as test_count
+                FROM drives d
+                ORDER BY d.last_seen DESC
+                LIMIT 5
+            ''')
+            recent_drives = cursor.fetchall()
 
-        if recent_drives:
-            for drive in recent_drives:
-                print(f"  {Color.CYAN}{drive['vendor']} {drive['model']}{Color.RESET}")
-                print(f"    Last seen: {drive['last_seen']} | Tests: {drive['test_count']}")
-                print()
-        else:
-            print(f"  {Color.YELLOW}No drives in database yet{Color.RESET}\n")
+            if recent_drives:
+                for drive in recent_drives:
+                    print(f"  {Color.CYAN}{drive['vendor']} {drive['model']}{Color.RESET}")
+                    print(f"    Last seen: {drive['last_seen']} | Tests: {drive['test_count']}")
+                    print()
+            else:
+                print(f"  {Color.YELLOW}No drives in database yet{Color.RESET}\n")
 
-        # Menu options
-        print(f"\n{Color.BRIGHT_WHITE}Options:{Color.RESET}\n")
-        print(f"  {Color.BRIGHT_YELLOW}[1]{Color.RESET} View all drives")
-        print(f"  {Color.BRIGHT_YELLOW}[2]{Color.RESET} Export database (coming soon)")
-        print(f"  {Color.BRIGHT_YELLOW}[3]{Color.RESET} Clear database (coming soon)")
-        print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
+            # Menu options
+            print(f"\n{Color.BRIGHT_WHITE}Options:{Color.RESET}\n")
+            print(f"  {Color.BRIGHT_YELLOW}[1]{Color.RESET} View all drives")
+            print(f"  {Color.BRIGHT_YELLOW}[2]{Color.RESET} Export database")
+            print(f"  {Color.BRIGHT_YELLOW}[3]{Color.RESET} Clear database")
+            print(f"  {Color.BRIGHT_YELLOW}[B]{Color.RESET} Back to main menu\n")
 
-        print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
-        choice = input(f"{Color.BRIGHT_GREEN}Select option: {Color.RESET}").strip().upper()
+            print(f"{Color.BRIGHT_CYAN}{'─' * 80}{Color.RESET}")
+            choice = input(f"{Color.BRIGHT_GREEN}Select option: {Color.RESET}").strip().upper()
 
-        if choice == '1':
-            self.view_all_drives()
-        elif choice == 'B':
-            return
-        else:
-            print_warning("Option not yet implemented")
-            input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
+            if choice == '1':
+                self.view_all_drives()
+            elif choice == '2':
+                self.export_database()
+            elif choice == '3':
+                self.clear_database()
+            elif choice == 'B':
+                return
+            else:
+                print_error("Invalid option")
+                input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
 
     def view_all_drives(self):
         """View all drives in database"""
@@ -94,7 +101,7 @@ class DriveDatabase:
 
         cursor = self.db.conn.cursor()
         cursor.execute('''
-            SELECT drive_id, vendor, model, serial_number, capacity_bytes, 
+            SELECT drive_id, vendor, model, serial_number, capacity_bytes,
                    bus_protocol, first_seen, last_seen
             FROM drives
             ORDER BY last_seen DESC
@@ -124,3 +131,48 @@ class DriveDatabase:
             print()
 
         input(f"\n{Color.BRIGHT_WHITE}Press Enter to return...{Color.RESET}")
+
+    def export_database(self):
+        """Export the database to a JSON file."""
+        clear_screen()
+        print_header()
+
+        print_section("Export Database", Color.BRIGHT_CYAN)
+
+        default_path = str(Path.home() / "usb_lab_database_export.json")
+        print(f"Default export path: {Color.CYAN}{default_path}{Color.RESET}\n")
+
+        path = input("Enter export path (or press Enter for default): ").strip()
+        if not path:
+            path = default_path
+
+        try:
+            self.db.export_to_json(path)
+            print_success(f"Database exported to {path}")
+        except Exception as e:
+            print_error(f"Export failed: {e}")
+
+        input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
+
+    def clear_database(self):
+        """Wipe all data from the database after confirmation."""
+        clear_screen()
+        print_header()
+
+        print_section("Clear Database", Color.BRIGHT_RED)
+        print(f"{Color.BRIGHT_YELLOW}⚠ WARNING{Color.RESET}")
+        print("This will permanently delete ALL drives, inspections, and test runs.")
+        print(f"{Color.CYAN}Tip: Export the database first if you want a backup.{Color.RESET}\n")
+
+        confirm = input("Type 'DELETE' to confirm: ").strip()
+
+        if confirm == 'DELETE':
+            try:
+                self.db.clear_all_data()
+                print_success("Database cleared")
+            except Exception as e:
+                print_error(f"Clear failed: {e}")
+        else:
+            print(f"{Color.CYAN}Clear cancelled{Color.RESET}")
+
+        input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
