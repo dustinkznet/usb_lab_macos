@@ -51,8 +51,11 @@ class TestHistoryViewer:
 
                 capacity_gb = drive['capacity_bytes'] / (1024 ** 3)
 
+                # Smart vendor/model display
+                vendor_model = f"{drive['vendor']} {drive['model']}" if drive['model'] else drive['vendor']
+
                 print(
-                    f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{drive['vendor']} {drive['model']}{Color.RESET}")
+                    f"  {Color.BRIGHT_YELLOW}[{i}]{Color.RESET} {Color.BRIGHT_CYAN}{vendor_model}{Color.RESET}")
                 print(f"      {capacity_gb:.1f} GB | Last seen: {drive['last_seen']}")
                 print(f"      {Color.CYAN}{inspection_count} inspection(s), {test_count} test(s){Color.RESET}")
                 print()
@@ -82,7 +85,6 @@ class TestHistoryViewer:
         clear_screen()
         print_header()
 
-        # Get drive history
         history = self.db.get_drive_history(drive_id)
 
         if not history['drive']:
@@ -92,9 +94,11 @@ class TestHistoryViewer:
 
         drive = history['drive']
 
-        # Display drive info
+        # FIXED: Smart vendor/model display
+        vendor_model = f"{drive['vendor']} {drive['model']}" if drive['model'] else drive['vendor']
+
         print(f"\n{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}")
-        print(f"{Color.BOLD}{Color.BRIGHT_WHITE}DRIVE HISTORY: {drive['vendor']} {drive['model']}{Color.RESET}")
+        print(f"{Color.BOLD}{Color.BRIGHT_WHITE}DRIVE HISTORY: {vendor_model}{Color.RESET}")
         print(f"{Color.BRIGHT_CYAN}{'═' * 80}{Color.RESET}\n")
 
         print(f"{Color.BRIGHT_WHITE}Drive Information:{Color.RESET}")
@@ -105,10 +109,9 @@ class TestHistoryViewer:
         print(f"  Last Seen: {drive['last_seen']}")
         print()
 
-        # Display inspection history
         if history['inspections']:
             print(f"{Color.BRIGHT_WHITE}Inspection History ({len(history['inspections'])}):{Color.RESET}")
-            for inspection in history['inspections'][:5]:  # Show last 5
+            for inspection in history['inspections'][:5]:
                 print(f"\n  {Color.CYAN}[{inspection['timestamp']}]{Color.RESET}")
                 print(f"    Type: {inspection['disk_type']}")
                 print(f"    Confidence: {inspection['classification_confidence']}")
@@ -118,11 +121,9 @@ class TestHistoryViewer:
                 print(f"\n  {Color.YELLOW}... and {len(history['inspections']) - 5} more{Color.RESET}")
             print()
 
-        # Display test results
         if history['tests']:
             print(f"{Color.BRIGHT_WHITE}Performance Test Results ({len(history['tests'])}):{Color.RESET}\n")
 
-            # Group by test type
             test_types = {}
             for test in history['tests']:
                 test_type = test['test_type']
@@ -133,13 +134,23 @@ class TestHistoryViewer:
             for test_type, tests in test_types.items():
                 print(f"  {Color.BRIGHT_CYAN}{test_type.replace('_', ' ').title()}:{Color.RESET}")
 
-                # Show latest result and average
                 latest = tests[0]
-                avg_speed = sum(t['speed_mbps'] or 0 for t in tests) / len(tests)
 
-                print(f"    Latest: {latest['speed_mbps']:.2f} MB/s ({latest['timestamp']})")
-                if len(tests) > 1:
-                    print(f"    Average: {avg_speed:.2f} MB/s ({len(tests)} test runs)")
+                # FIXED: Only show speed if it exists (health checks have no speed)
+                if latest.get('speed_mbps') is not None:
+                    avg_speed = sum(t['speed_mbps'] or 0 for t in tests) / len(tests)
+                    print(f"    Latest: {latest['speed_mbps']:.2f} MB/s ({latest['timestamp']})")
+
+                    if latest.get('adapter_info'):
+                        print(f"    Adapter: {Color.BRIGHT_YELLOW}{latest['adapter_info']}{Color.RESET}")
+
+                    if len(tests) > 1:
+                        print(f"    Average: {avg_speed:.2f} MB/s ({len(tests)} test runs)")
+                else:
+                    # Health check or other non-speed test
+                    print(f"    Completed: {latest['timestamp']}")
+                    if latest.get('adapter_info'):
+                        print(f"    Adapter: {Color.BRIGHT_YELLOW}{latest['adapter_info']}{Color.RESET}")
 
                 if latest.get('iops'):
                     avg_iops = sum(t['iops'] or 0 for t in tests) / len(tests)

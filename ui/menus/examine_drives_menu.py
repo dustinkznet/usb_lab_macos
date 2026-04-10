@@ -1,5 +1,6 @@
 """
 Examine Drives menu - drive inspection and analysis.
+ADDED: Alerts when known drives reconnect.
 """
 
 from typing import Optional
@@ -8,6 +9,7 @@ from inspection.disk_inspector import DiskInspector
 from ui.colors import Color
 from ui.display import clear_screen, print_header, print_section, print_success, print_warning, print_error
 from ui.reporters import DiskReporter
+from ui.drive_database import DriveDatabase
 
 
 class ExamineDrivesMenu:
@@ -17,6 +19,7 @@ class ExamineDrivesMenu:
         self.inspector = inspector
         self.db = db
         self.settings = settings
+        self.drive_db = DriveDatabase(db)
 
     def show(self):
         """Display examine drives menu and handle user interaction. Loops until user backs out."""
@@ -35,6 +38,9 @@ class ExamineDrivesMenu:
                 return
 
             print_success(f"Found {len(external_disks)} external disk(s)\n")
+
+            # Check for known drives and alert
+            self._check_known_drives(external_disks)
 
             # Display drive list
             self._display_drive_list(external_disks)
@@ -61,12 +67,36 @@ class ExamineDrivesMenu:
                 print_error("Invalid selection")
                 input(f"\n{Color.BRIGHT_WHITE}Press Enter to continue...{Color.RESET}")
 
+    def _check_known_drives(self, disks):
+        """Check if any detected drives are known and show alerts."""
+        for disk in disks:
+            # Get serial number
+            info = self.inspector.backend.get_disk_info(disk.identifier)
+            if info:
+                serial = info.get('SerialNumber', disk.identifier)
+
+                # Extract vendor/model
+                if disk.name and disk.name != "Unknown":
+                    name_parts = disk.name.split()
+                    if len(name_parts) >= 2:
+                        vendor = name_parts[0]
+                        model = " ".join(name_parts[1:])
+                    else:
+                        vendor = disk.name
+                        model = ""
+                else:
+                    vendor = "Unknown"
+                    model = ""
+
+                # Generate drive_id and check
+                drive_id = self.db.generate_drive_id(vendor, model, serial)
+                self.drive_db.check_for_known_drive(drive_id)
+
     def _display_drive_list(self, disks):
         """Display formatted list of drives."""
         print(f"{Color.BRIGHT_WHITE}Available Drives:{Color.RESET}\n")
 
         for i, disk in enumerate(disks, 1):
-            # Calculate mount status
             mounted_count = sum(1 for p in disk.partitions if p.is_mounted)
             total_count = len(disk.partitions)
 
@@ -77,7 +107,6 @@ class ExamineDrivesMenu:
             else:
                 mount_status = f"{Color.BRIGHT_RED}○ NOT MOUNTED{Color.RESET}"
 
-            # Get volume name from first partition
             volume_name = self._get_volume_name(disk)
 
             # Use volume name as primary label when available (adapter names like
@@ -102,7 +131,6 @@ class ExamineDrivesMenu:
         clear_screen()
         print_header()
 
-        # Display inspection results
         reporter = DiskReporter()
         reporter.display_disk_summary(disk)
 
