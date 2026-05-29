@@ -146,3 +146,14 @@ cython_debug/
 # Project-specific
 *.sqlite
 *.db
+
+# Secrets — never commit (defense in depth; no secrets today, but if one's ever added)
+config.conf
+*.key
+*.pem
+credentials.json
+
+# Internal dev docs — local-only (contain local paths + private tooling refs; this is a public repo)
+CLAUDE.md
+_RUNBOOK.md
+TODO.md

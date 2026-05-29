@@ -141,10 +141,8 @@ Key settings:
 
 ## License
 
-MIT License - See LICENSE file for details
+Released under the MIT License.
 
 ## Documentation
 
-- QUICKSTART.md - Quick start guide
 - CHANGELOG.md - Version history
-- CONTRIBUTING.md - Contribution guidelines
